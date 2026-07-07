@@ -4,48 +4,70 @@ from views.home import home
 from views.features import features
 from views.login import login
 from views.signup import signup
-
+from views.forgot_pass import forgot
 
 def main(page: ft.Page):
     page.title = "How's Business - Management System"
-    page.padding = 30
-    page.bgcolor = "#0B132B" 
-    page.window_width = 900
-    page.window_height = 600
-    page.scroll = ft.ScrollMode.AUTO
+    page.bgcolor = "#0B132B"
+    page.padding = 0
     
-    if not hasattr(page, "current_tab"):
-        page.current_tab = "HOME"
+    page.current_tab = "HOME"
 
-    def route_change(target_tab: str, route: str, key: str):
-        page.current_tab = target_tab
+    def route_change(e=None):
         page.clean()
+        current_route = page.route if page.route else "/home"
         
-        if page.current_tab == "LOGIN":
-            page.add(login(page, on_back_callback=route_change))
+        # No Navbar Pages
+        if current_route == "/login":
+            page.current_tab = "LOGIN"
+            page.add(login(page, on_back_callback=lambda target, r, k: page.navigate(r)))
             return
-
-        elif page.current_tab == "SIGNUP":
-            page.add(signup(page, on_back_callback=route_change))
+        elif current_route == "/signup":
+            page.current_tab = "SIGNUP"
+            page.add(signup(page, on_back_callback=lambda target, r, k: page.navigate(r)))
+            return
+        elif current_route == "/forgot-password":
+            page.current_tab = "FORGOT"
+            page.add(forgot(page, on_back_callback=lambda target, r, k: page.navigate(r)))
             return
         
-        elif page.current_tab == "FORGOT":
-            page.add(login(page, on_back_callback=route_change))
+        # With Top Navbar Wrapper
+        elif current_route == "/home" or current_route == "/":
+            page.current_tab = "HOME"
+            active_content = home(page)
+        elif current_route == "/features":
+            page.current_tab = "FEATURES"
+            active_content = features(page)
+        
+        # Fallback for unknown routes
+        else:
+            page.navigate("/home")
             return
-
-        active_content = home(page) if page.current_tab == "HOME" else features(page)
+        
+        def show_navbar(target_tab, route, key):
+            page.navigate(route)
         
         page.add(
             ft.Column(
                 controls=[
-                    navbar(page, on_navigate_callback=route_change),
+                    navbar(page, on_navigate_callback=show_navbar),
                     active_content
                 ],
                 horizontal_alignment=ft.CrossAxisAlignment.STRETCH,
                 expand=True
             )
         )
+        page.update()
 
-    route_change(page.current_tab, "/", "home")
+    def handle_resize(e):
+        route_change()
 
-ft.run(main)
+    page.on_route_change = route_change
+    page.on_resize = handle_resize
+
+    if page.route == "/" or not page.route:
+        page.navigate("/home")
+    else:
+        route_change()
+
+ft.run(main, view=ft.AppView.WEB_BROWSER)

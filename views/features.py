@@ -97,7 +97,8 @@ def features(page: ft.Page):
                 cards,
             ],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=0
+            spacing=0,
+            scroll=ft.ScrollMode.AUTO,
         ),
         alignment=ft.Alignment.CENTER,
         expand=True,

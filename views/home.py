@@ -22,7 +22,7 @@ def home(page: ft.Page):
         size=20,
         color="white",
         text_align=ft.TextAlign.CENTER,
-        style=ft.TextStyle(height=1.5)
+        style=ft.TextStyle(height=1.5),
     )
 
     learn_more_btn = ft.Container(
@@ -32,7 +32,8 @@ def home(page: ft.Page):
         border_radius=5,
         margin=ft.Margin(left=0, top=25, right=0, bottom=0),
         alignment=ft.Alignment.CENTER,
-        width=160
+        width=160,
+        on_click=lambda _: page.navigate("/features"),
     )
 
     return ft.Container(
@@ -41,7 +42,8 @@ def home(page: ft.Page):
                       hero_description, ft.Container(height=22), learn_more_btn],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             spacing=0,
+            scroll=ft.ScrollMode.AUTO,
         ),
-        padding=ft.Padding(left=40, top=70, right=40, bottom=70),
         expand=True,
+        padding=ft.Padding(left=40, top=70, right=40, bottom=70),
     )
