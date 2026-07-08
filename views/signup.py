@@ -82,7 +82,7 @@ def signup(page: ft.Page, on_back_callback):
         border_radius=5,
         height=45,
         alignment=ft.Alignment.CENTER,
-        on_click=lambda _: page.navigate("/login")
+        on_click=lambda _: page.navigate("/welcome")
     )
 
     login_link = ft.Row(

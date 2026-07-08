@@ -5,6 +5,8 @@ from views.features import features
 from views.login import login
 from views.signup import signup
 from views.forgot_pass import forgot
+from views.welcome import welcome
+from views.pin import pin
 
 def main(page: ft.Page):
     page.title = "How's Business - Management System"
@@ -29,6 +31,18 @@ def main(page: ft.Page):
         elif current_route == "/forgot-password":
             page.current_tab = "FORGOT"
             page.add(forgot(page, on_back_callback=lambda target, r, k: page.navigate(r)))
+            return
+        elif current_route == "/welcome":
+            page.current_tab = "WELCOME"
+            page.add(welcome(page, on_back_callback=lambda target, r, k: page.navigate(r)))
+            return
+        elif current_route == "/create-pin":
+            page.current_tab = "CREATE_PIN"
+            page.add(pin(page, mode="create"))
+            return
+        elif current_route == "/verify-pin":
+            page.current_tab = "VERIFY_PIN"
+            page.add(pin(page, mode="verify"))
             return
         
         # With Top Navbar Wrapper
