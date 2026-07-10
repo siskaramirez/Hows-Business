@@ -33,7 +33,7 @@ def pin(page: ft.Page, mode="create"):
             return
             
         print(f"PIN Submitted ({mode}): {entered_pin}")
-        page.navigate("/home")
+        page.navigate("/dashboard")
 
     pin_box_row = ft.Row(spacing=15, alignment=ft.MainAxisAlignment.CENTER)
     for i in range(4):
