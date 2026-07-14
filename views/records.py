@@ -1,6 +1,8 @@
 import flet as ft
 from datetime import datetime
-from services.data_controller import db_controller
+import requests
+
+API_URL = "http://127.0.0.1:8000"
 
 def records(page: ft.Page):
     def handle_date(e):
@@ -8,7 +10,7 @@ def records(page: ft.Page):
             raw = date_picker.value
             local_date = raw.astimezone()
             
-            date.value = f"{local_date.month:02d}/{local_date.day:02d}/{local_date.year}"
+            date.value = f"{local_date.year}-{local_date.month:02d}-{local_date.day:02d}"
             date.update()
 
     date_picker = ft.DatePicker(on_change=handle_date)
@@ -98,86 +100,195 @@ def records(page: ft.Page):
     table_container = ft.Column(expand=True)
     
     def build_data_rows():
+
         rows = []
-        for tx in db_controller.get_all():
+
+        try:
+            response = requests.get(
+                f"{API_URL}/records/"
+            )
+
+            if response.status_code == 200:
+                transactions = response.json()["records"]
+            else:
+                transactions = []
+
+        except Exception as e:
+            print("API Error:", e)
+            transactions = []
+
+
+        for tx in transactions:
+
             status_colors = {
                 "active": ("#E2F7ED", "#2ECC71"),
                 "edit": ("#FFF3CD", "#F1C40F"),
                 "void": ("#F8D7DA", "#E74C3C")
             }
-            bg, text_col = status_colors.get(tx["status"], ("#E0E0E0", "#333333"))
+
+
+            bg, text_col = status_colors.get(
+                tx["status"],
+                ("#E0E0E0", "#333333")
+            )
+
 
             status_pill = ft.Container(
-                content=ft.Text(tx["status"], size=11, color=text_col, weight=ft.FontWeight.BOLD),
-                bgcolor=bg, border_radius=15, padding=ft.Padding(left=12, top=3, right=12, bottom=3)
+                content=ft.Text(
+                    tx["status"],
+                    size=11,
+                    color=text_col,
+                    weight=ft.FontWeight.BOLD
+                ),
+                bgcolor=bg,
+                border_radius=15,
+                padding=ft.Padding(
+                    left=12,
+                    top=3,
+                    right=12,
+                    bottom=3
+                )
             )
+
 
             rows.append(
                 ft.DataRow(
                     cells=[
-                        ft.DataCell(ft.Text(tx["id"], size=12)),
-                        ft.DataCell(ft.Text(tx["date"], size=12)),
-                        ft.DataCell(ft.Text(tx["account_name"], size=12, weight=ft.FontWeight.W_500)),
-                        ft.DataCell(status_pill),
-                        ft.DataCell(ft.Text(tx["description"], size=12)),
-                        ft.DataCell(ft.Text(tx["ref_no"], size=12)),
-                        ft.DataCell(ft.Text(f"₱{tx['amount']:,.2f}", size=12, weight=ft.FontWeight.BOLD)),
+
                         ft.DataCell(
-                            ft.Row([
-                                ft.IconButton(icon=ft.Icons.CHECK_BOX_OUTLINED, icon_size=16, icon_color=ft.Colors.BLUE_GREY_400, padding=0),
-                                ft.IconButton(icon=ft.Icons.DELETE_OUTLINE, icon_size=16, icon_color=ft.Colors.RED_300, padding=0)
-                            ], spacing=0)
+                            ft.Text(
+                                str(tx["id"]),
+                                size=12
+                            )
                         ),
+
+                        ft.DataCell(
+                            ft.Text(
+                                str(tx["date"]),
+                                size=12
+                            )
+                        ),
+
+                        ft.DataCell(
+                            ft.Text(
+                                tx["account_name"],
+                                size=12,
+                                weight=ft.FontWeight.W_500
+                            )
+                        ),
+
+                        ft.DataCell(
+                            status_pill
+                        ),
+
+                        ft.DataCell(
+                            ft.Text(
+                                tx["description"],
+                                size=12
+                            )
+                        ),
+
+                        ft.DataCell(
+                            ft.Text(
+                                tx["invoice_no"] or "",
+                                size=12
+                            )
+                        ),
+
+                        ft.DataCell(
+                            ft.Text(
+                                f"₱{tx['amount']:,.2f}",
+                                size=12,
+                                weight=ft.FontWeight.BOLD
+                            )
+                        ),
+
+                        ft.DataCell(
+                            ft.Row(
+                                [
+                                    ft.IconButton(
+                                        icon=ft.Icons.CHECK_BOX_OUTLINED,
+                                        icon_size=16,
+                                        icon_color=ft.Colors.BLUE_GREY_400,
+                                        padding=0
+                                    ),
+
+                                    ft.IconButton(
+                                        icon=ft.Icons.DELETE_OUTLINE,
+                                        icon_size=16,
+                                        icon_color=ft.Colors.RED_300,
+                                        padding=0
+                                    )
+                                ],
+                                spacing=0
+                            )
+                        )
                     ]
                 )
             )
 
+
         return ft.DataTable(
             columns=[
-                ft.DataColumn(ft.Text("#", size=12, weight=ft.FontWeight.BOLD)),
-                ft.DataColumn(ft.Text("Date", size=12, weight=ft.FontWeight.BOLD)),
-                ft.DataColumn(ft.Text("Account Name", size=12, weight=ft.FontWeight.BOLD)),
-                ft.DataColumn(ft.Text("Status", size=12, weight=ft.FontWeight.BOLD)),
-                ft.DataColumn(ft.Text("Description", size=12, weight=ft.FontWeight.BOLD)),
-                ft.DataColumn(ft.Text("Ref. no.", size=12, weight=ft.FontWeight.BOLD)),
-                ft.DataColumn(ft.Text("Amount", size=12, weight=ft.FontWeight.BOLD)),
-                ft.DataColumn(ft.Text("Action", size=12, weight=ft.FontWeight.BOLD)),
+                ft.DataColumn(ft.Text("#", size=12)),
+                ft.DataColumn(ft.Text("Date", size=12)),
+                ft.DataColumn(ft.Text("Account Name", size=12)),
+                ft.DataColumn(ft.Text("Status", size=12)),
+                ft.DataColumn(ft.Text("Description", size=12)),
+                ft.DataColumn(ft.Text("Ref. no.", size=12)),
+                ft.DataColumn(ft.Text("Amount", size=12)),
+                ft.DataColumn(ft.Text("Action", size=12)),
             ],
             rows=rows,
             heading_row_height=35,
             data_row_min_height=38,
-            horizontal_lines=ft.BorderSide(0.5, "#E0E0E0"),
         )
-    
+
+
     def update_table_view():
         table_container.controls.clear()
         table_container.controls.append(build_data_rows())
         table_container.update()
 
     def handle_save_record(e):
+
         if not amount.value or not desc.value or not account.value:
             return
-        
-        db_controller.add_record(
-            date=date.value,
-            description=desc.value,
-            account_name=account.value,
-            amount=amount.value,
-            payment_method=payment.value,
-            tx_type=transac_type.value,
-            invoice_no=invoice.value
+
+
+        data = {
+            "transaction_date": date.value,
+            "description": desc.value,
+            "account_name": account.value,
+            "amount": float(amount.value),
+            "payment_method": payment.value,
+            "transaction_type": transac_type.value,
+            "invoice_no": invoice.value
+        }
+
+
+        response = requests.post(
+            f"{API_URL}/records/",
+            json=data
         )
 
-        desc.value = ""
-        amount.value = ""
-        invoice.value = ""
-        desc.update()
-        amount.update()
-        invoice.update()
 
-        update_table_view()
+        if response.status_code == 200:
+
+            desc.value = ""
+            amount.value = ""
+            invoice.value = ""
+
+            desc.update()
+            amount.update()
+            invoice.update()
+
+            update_table_view()
 
     table_container.controls.append(build_data_rows())
+
+    async def download_template(e):
+        await page.launch_url("http://127.0.0.1:8000/download-template")
 
     upload_card = ft.Container(
         content=ft.Column([
@@ -194,6 +305,7 @@ def records(page: ft.Page):
                 width=float("inf"), 
                 alignment=ft.Alignment.CENTER
             ),
+
             ft.ElevatedButton(
                 content=ft.Text(
                     "DOWNLOAD TEMPLATE",
@@ -204,9 +316,12 @@ def records(page: ft.Page):
                 icon=ft.Icons.DOWNLOAD_ROUNDED,
                 icon_color="#1C2541",
                 bgcolor=ft.Colors.WHITE,
-                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=15)),
+                style=ft.ButtonStyle(
+                    shape=ft.RoundedRectangleBorder(radius=15)
+                ),
                 height=30,
-                margin=ft.Margin(left=0, top=5, right=0, bottom=0)
+                margin=ft.Margin(left=0, top=5, right=0, bottom=0),
+                on_click=download_template
             )
         ]),
         expand=True, 
