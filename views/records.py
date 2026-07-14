@@ -290,20 +290,49 @@ def records(page: ft.Page):
     async def download_template(e):
         await page.launch_url("http://127.0.0.1:8000/download-template")
 
+
+    async def open_upload(e):
+        await page.launch_url(
+            "http://127.0.0.1:8000/upload",
+            web_popup_window=True,
+            web_popup_window_name="upload",
+            web_popup_window_width=600,
+            web_popup_window_height=700,
+        )
+
     upload_card = ft.Container(
         content=ft.Column([
             ft.Text("UPLOAD TRANSACTION FILE", color=ft.Colors.WHITE, size=14, weight=ft.FontWeight.BOLD, style=ft.TextStyle(letter_spacing=1.1)),
-            ft.Container(
-                content=ft.Column([
-                    ft.Icon(ft.Icons.UPLOAD_FILE_OUTLINED, color=ft.Colors.WHITE, size=36),
-                    ft.Text("Drag & drop a file\nor click to browse", color=ft.Colors.WHITE, size=13, text_align=ft.TextAlign.CENTER)
-                ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-                padding=ft.Padding(left=0, top=25, right=0, bottom=25),
-                border=ft.Border.all(1, ft.Colors.with_opacity(0.3, ft.Colors.WHITE)), 
-                border_radius=10, 
-                expand=True, 
-                width=float("inf"), 
-                alignment=ft.Alignment.CENTER
+
+            ft.GestureDetector(
+                on_tap=open_upload,
+                content=ft.Container(
+                    content=ft.Column(
+                        [
+                            ft.Icon(
+                                ft.Icons.UPLOAD_FILE_OUTLINED,
+                                color=ft.Colors.WHITE,
+                                size=36,
+                            ),
+                            ft.Text(
+                                "Drag & drop a file\nor click to browse",
+                                color=ft.Colors.WHITE,
+                                size=13,
+                                text_align=ft.TextAlign.CENTER,
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.CENTER,
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                    ),
+                    padding=25,
+                    border=ft.Border.all(
+                        1,
+                        ft.Colors.with_opacity(0.3, ft.Colors.WHITE),
+                    ),
+                    border_radius=10,
+                    expand=True,
+                    alignment=ft.Alignment.CENTER,
+                ),
             ),
 
             ft.ElevatedButton(

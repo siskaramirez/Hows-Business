@@ -1,0 +1,45 @@
+body{
+    margin:0;
+    background:#0B132B;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    height:100vh;
+    font-family:Arial,sans-serif;
+}
+
+.modal{
+    width:480px;
+    background:white;
+    border-radius:18px;
+    padding:30px;
+    text-align:center;
+    box-shadow:0 10px 40px rgba(0,0,0,.35);
+}
+
+h2{
+    color:#1C2541;
+}
+
+#drop-zone{
+    margin-top:25px;
+    border:2px dashed #1C2541;
+    border-radius:15px;
+    padding:50px;
+    cursor:pointer;
+    transition:.25s;
+}
+
+#drop-zone:hover{
+    background:#F5F7FB;
+}
+
+.icon{
+    font-size:48px;
+}
+
+#status{
+    margin-top:20px;
+    font-weight:bold;
+    color:#1C2541;
+}

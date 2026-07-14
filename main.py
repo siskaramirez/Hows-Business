@@ -152,4 +152,5 @@ def main(page: ft.Page):
     else:
         route_change()
 
-ft.run(main, view=ft.AppView.WEB_BROWSER)
+if __name__ == "__main__":
+    ft.run(main, view=ft.AppView.WEB_BROWSER)
