@@ -1,0 +1,314 @@
+import flet as ft
+from datetime import datetime
+from services.data_controller import db_controller
+
+def records(page: ft.Page):
+    def handle_date(e):
+        if date_picker.value:
+            raw = date_picker.value
+            local_date = raw.astimezone()
+            
+            date.value = f"{local_date.month:02d}/{local_date.day:02d}/{local_date.year}"
+            date.update()
+
+    date_picker = ft.DatePicker(on_change=handle_date)
+
+    input_style = {
+        "bgcolor": ft.Colors.WHITE,
+        "color": "#1C2541",
+        "text_size": 12,
+        "height": 45,
+        "width" : 150, 
+        "content_padding": ft.Padding(left=10, top=10, right=10, bottom=10),
+        "border_radius": 6,
+        "border_color": ft.Colors.TRANSPARENT,
+    }
+
+    dropdown_style = {
+        "fill_color": ft.Colors.WHITE, 
+        "filled": True,
+        "color": "#1C2541",
+        "text_size": 12,
+        "width" : 150, 
+        "content_padding": ft.Padding(left=10, top=0, right=10, bottom=0),
+        "border_radius": 6,
+        "border_color": ft.Colors.TRANSPARENT,
+    }
+
+    date = ft.TextField(
+        hint_text="Select date...",
+        hint_style=ft.TextStyle(color=ft.Colors.BLUE_GREY_300),
+        read_only=True,
+        on_click=lambda _: page.show_dialog(date_picker),
+        **input_style
+    )
+
+    desc = ft.TextField(
+        hint_text="e.g., Batch Sale",
+        hint_style=ft.TextStyle(color=ft.Colors.BLUE_GREY_300),
+        **input_style
+    )
+
+    account = ft.Dropdown(
+        hint_text="Select account...",
+        hint_style=ft.TextStyle(color=ft.Colors.BLUE_GREY_300),
+        value=None,
+        options=[
+            ft.dropdown.Option("Revenue"), 
+            ft.dropdown.Option("Expense")
+        ], 
+        **dropdown_style
+    )
+
+    amount = ft.TextField(
+        hint_text="e.g., 1,500.00",
+        hint_style=ft.TextStyle(color=ft.Colors.BLUE_GREY_300),
+        **input_style
+    )
+
+    payment = ft.Dropdown(
+        hint_text="Select payment method...",
+        hint_style=ft.TextStyle(color=ft.Colors.BLUE_GREY_300),
+        value=None, 
+        options=[
+            ft.dropdown.Option("Cash"), 
+            ft.dropdown.Option("CC / DC"), 
+            ft.dropdown.Option("Digital wallet")
+        ], 
+        **dropdown_style
+    )
+
+    transac_type = ft.Dropdown(
+        hint_text="Select type...",
+        hint_style=ft.TextStyle(color=ft.Colors.BLUE_GREY_300),
+        value=None, 
+        options=[
+            ft.dropdown.Option("COGS Sales"), 
+            ft.dropdown.Option("Operating Expense")
+        ], 
+        **dropdown_style
+    )
+
+    invoice = ft.TextField(
+        hint_text="e.g., OR-9982",
+        hint_style=ft.TextStyle(color=ft.Colors.BLUE_GREY_300),
+        **input_style
+    )
+
+    table_container = ft.Column(expand=True)
+    
+    def build_data_rows():
+        rows = []
+        for tx in db_controller.get_all():
+            status_colors = {
+                "active": ("#E2F7ED", "#2ECC71"),
+                "edit": ("#FFF3CD", "#F1C40F"),
+                "void": ("#F8D7DA", "#E74C3C")
+            }
+            bg, text_col = status_colors.get(tx["status"], ("#E0E0E0", "#333333"))
+
+            status_pill = ft.Container(
+                content=ft.Text(tx["status"], size=11, color=text_col, weight=ft.FontWeight.BOLD),
+                bgcolor=bg, border_radius=15, padding=ft.Padding(left=12, top=3, right=12, bottom=3)
+            )
+
+            rows.append(
+                ft.DataRow(
+                    cells=[
+                        ft.DataCell(ft.Text(tx["id"], size=12)),
+                        ft.DataCell(ft.Text(tx["date"], size=12)),
+                        ft.DataCell(ft.Text(tx["account_name"], size=12, weight=ft.FontWeight.W_500)),
+                        ft.DataCell(status_pill),
+                        ft.DataCell(ft.Text(tx["description"], size=12)),
+                        ft.DataCell(ft.Text(tx["ref_no"], size=12)),
+                        ft.DataCell(ft.Text(f"₱{tx['amount']:,.2f}", size=12, weight=ft.FontWeight.BOLD)),
+                        ft.DataCell(
+                            ft.Row([
+                                ft.IconButton(icon=ft.Icons.CHECK_BOX_OUTLINED, icon_size=16, icon_color=ft.Colors.BLUE_GREY_400, padding=0),
+                                ft.IconButton(icon=ft.Icons.DELETE_OUTLINE, icon_size=16, icon_color=ft.Colors.RED_300, padding=0)
+                            ], spacing=0)
+                        ),
+                    ]
+                )
+            )
+
+        return ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("#", size=12, weight=ft.FontWeight.BOLD)),
+                ft.DataColumn(ft.Text("Date", size=12, weight=ft.FontWeight.BOLD)),
+                ft.DataColumn(ft.Text("Account Name", size=12, weight=ft.FontWeight.BOLD)),
+                ft.DataColumn(ft.Text("Status", size=12, weight=ft.FontWeight.BOLD)),
+                ft.DataColumn(ft.Text("Description", size=12, weight=ft.FontWeight.BOLD)),
+                ft.DataColumn(ft.Text("Ref. no.", size=12, weight=ft.FontWeight.BOLD)),
+                ft.DataColumn(ft.Text("Amount", size=12, weight=ft.FontWeight.BOLD)),
+                ft.DataColumn(ft.Text("Action", size=12, weight=ft.FontWeight.BOLD)),
+            ],
+            rows=rows,
+            heading_row_height=35,
+            data_row_min_height=38,
+            horizontal_lines=ft.BorderSide(0.5, "#E0E0E0"),
+        )
+    
+    def update_table_view():
+        table_container.controls.clear()
+        table_container.controls.append(build_data_rows())
+        table_container.update()
+
+    def handle_save_record(e):
+        if not amount.value or not desc.value or not account.value:
+            return
+        
+        db_controller.add_record(
+            date=date.value,
+            description=desc.value,
+            account_name=account.value,
+            amount=amount.value,
+            payment_method=payment.value,
+            tx_type=transac_type.value,
+            invoice_no=invoice.value
+        )
+
+        desc.value = ""
+        amount.value = ""
+        invoice.value = ""
+        desc.update()
+        amount.update()
+        invoice.update()
+
+        update_table_view()
+
+    table_container.controls.append(build_data_rows())
+
+    upload_card = ft.Container(
+        content=ft.Column([
+            ft.Text("UPLOAD TRANSACTION FILE", color=ft.Colors.WHITE, size=14, weight=ft.FontWeight.BOLD, style=ft.TextStyle(letter_spacing=1.1)),
+            ft.Container(
+                content=ft.Column([
+                    ft.Icon(ft.Icons.UPLOAD_FILE_OUTLINED, color=ft.Colors.WHITE, size=36),
+                    ft.Text("Drag & drop a file\nor click to browse", color=ft.Colors.WHITE, size=13, text_align=ft.TextAlign.CENTER)
+                ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
+                padding=ft.Padding(left=0, top=25, right=0, bottom=25),
+                border=ft.Border.all(1, ft.Colors.with_opacity(0.3, ft.Colors.WHITE)), 
+                border_radius=10, 
+                expand=True, 
+                width=float("inf"), 
+                alignment=ft.Alignment.CENTER
+            ),
+            ft.ElevatedButton(
+                content=ft.Text(
+                    "DOWNLOAD TEMPLATE",
+                    size=12,
+                    weight=ft.FontWeight.BOLD,
+                    color="#1C2541"
+                ),
+                icon=ft.Icons.DOWNLOAD_ROUNDED,
+                icon_color="#1C2541",
+                bgcolor=ft.Colors.WHITE,
+                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=15)),
+                height=30,
+                margin=ft.Margin(left=0, top=5, right=0, bottom=0)
+            )
+        ]),
+        expand=True, 
+        bgcolor="#1C2541", 
+        border_radius=20, 
+        padding=25,
+    )
+    
+    manual_card = ft.Container(
+        content=ft.Column([
+            ft.Text("MANUAL ENTRY", color=ft.Colors.WHITE, size=14, weight=ft.FontWeight.BOLD, style=ft.TextStyle(letter_spacing=1.1)),
+            ft.Container(height=10),
+
+            ft.ResponsiveRow([
+                ft.Column([ft.Text("Date", color=ft.Colors.WHITE, size=12), date], col={"xs": 6, "sm": 4, "md": 4}, spacing=4),
+                ft.Column([ft.Text("Description", color=ft.Colors.WHITE, size=12), desc], col={"xs": 6, "sm": 4, "md": 4}, spacing=4),
+                ft.Column([ft.Text("Account name", color=ft.Colors.WHITE, size=12), account], col={"xs": 6, "sm": 4, "md": 4}, spacing=4),
+                
+                ft.Column([ft.Text("Amount (₱)", color=ft.Colors.WHITE, size=12), amount], col={"xs": 6, "sm": 4, "md": 4}, spacing=4),
+                ft.Column([ft.Text("Payment method", color=ft.Colors.WHITE, size=12), payment], col={"xs": 6, "sm": 4, "md": 4}, spacing=4),
+                ft.Column([ft.Text("Transaction Type", color=ft.Colors.WHITE, size=12), transac_type], col={"xs": 6, "sm": 4, "md": 4}, spacing=4),
+                
+                ft.Column([ft.Text("Invoice no.", color=ft.Colors.WHITE, size=12), invoice], col={"xs": 6, "sm": 4, "md": 4}, spacing=4),
+                
+                ft.Column([
+                    ft.Container(
+                        content=ft.Row([
+                            ft.TextButton(
+                                content=ft.Text(
+                                    "CLEAR",
+                                    size=12,
+                                    weight=ft.FontWeight.BOLD,
+                                    color=ft.Colors.WHITE,
+                                    style=ft.TextStyle(decoration=ft.TextDecoration.UNDERLINE),
+                                )
+                            ),
+                            ft.ElevatedButton(
+                                content=ft.Text(
+                                    "SAVE RECORD",
+                                    size=12,
+                                    weight=ft.FontWeight.BOLD,
+                                    color="#1C2541"
+                                ),
+                                icon=ft.Icons.SAVE_OUTLINED,
+                                icon_color="#1C2541",
+                                bgcolor=ft.Colors.WHITE,
+                                on_click=handle_save_record,
+                                style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=15)),
+                                height=30
+                            )
+                        ], alignment=ft.MainAxisAlignment.END),
+                        margin=ft.Margin(left=0, top=30, right=0, bottom=0),
+                    )
+                ], col={"xs": 12, "sm": 8, "md": 8})
+            ], run_spacing=8, alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+        ], spacing=0),
+        bgcolor="#1C2541", 
+        border_radius=20, 
+        padding=25,
+    )
+
+    records_card = ft.Container(
+        content=ft.Column([
+            ft.Row([
+                ft.Text("TRANSACTION RECORDS", color="#1C2541", size=16, weight=ft.FontWeight.BOLD),
+                ft.Row([
+                    ft.TextField(hint_text="Search...", width=180, height=30, text_size=12, content_padding=10, prefix_icon=ft.Icons.SEARCH, bgcolor="#F4F6F9", border_radius=8, border_color=ft.Colors.TRANSPARENT),
+                    ft.ElevatedButton(
+                        content=ft.Text(
+                            "GENERATE",
+                            size=11,
+                            weight=ft.FontWeight.BOLD,
+                            color=ft.Colors.WHITE
+                        ),
+                        bgcolor="#1C2541",
+                        style=ft.ButtonStyle(shape=ft.RoundedRectangleBorder(radius=6)),
+                        height=30
+                    )
+                ], spacing=10)
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            ft.Divider(height=10, color=ft.Colors.TRANSPARENT),
+            
+            ft.Row([table_container], alignment=ft.MainAxisAlignment.CENTER, scroll=ft.ScrollMode.AUTO)
+        ]),
+        bgcolor=ft.Colors.WHITE, 
+        border_radius=20, 
+        padding=20,
+    )
+
+    return ft.Container(
+        content=ft.ListView(
+            controls=[
+                ft.ResponsiveRow([
+                    ft.Container(upload_card, col={"sm": 12, "md": 5}, height=300),
+                    ft.Container(manual_card, col={"sm": 12, "md": 7})
+                ], spacing=20),
+                ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
+                
+                records_card
+            ],
+            spacing=0,
+            expand=True
+        ),
+        expand=True,
+    )

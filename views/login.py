@@ -92,7 +92,7 @@ def login(page: ft.Page, on_back_callback):
                             ft.Container(height=10),
                             
                             login_btn,
-                            ft.Container(height=20),
+                            ft.Container(height=30),
                             
                             ft.Row([
                                 ft.Container(height=1, bgcolor="#CBD5E1", expand=True),

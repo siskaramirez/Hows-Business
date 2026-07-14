@@ -94,13 +94,10 @@ def sidebar(page: ft.Page, active_route: str):
             
             create_section_label("Overview"),
             create_menu_item("DASHBOARD", "/dashboard"),
-            create_menu_item("MY BRANCHES", "/branches"),
-            
-            create_section_label("All Branches"),
             create_menu_item("RECORDS", "/records"),
             create_menu_item("FINANCIAL STATEMENT", "/statements"),
             create_menu_item("SIMULATION", "/simulation"),
-            create_menu_item("BIR COMPLIANCE", "/compliance"),
+            create_menu_item("STAFFS", "/staffs"),
             
             create_section_label("Account"),
             create_menu_item("SETTINGS", "/settings"),

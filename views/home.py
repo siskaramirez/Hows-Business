@@ -26,7 +26,7 @@ def home(page: ft.Page):
     )
 
     learn_more_btn = ft.Container(
-        content=ft.Text("LEARN MORE", color="#0B132B", weight=ft.FontWeight.BOLD, size=15),
+        content=ft.Text("LEARN MORE", color="#1C2541", weight=ft.FontWeight.BOLD, size=15),
         bgcolor=ft.Colors.WHITE,
         padding=ft.Padding(left=30, top=12, right=30, bottom=12),
         border_radius=5,
