@@ -32,39 +32,13 @@ if (nzchar(input_path) && file.exists(input_path)) {
 
 connect_database <- function(config) {
     dbConnect(
-        RMySQL::MySQL(),
+        RMariaDB::MariaDB(),
         dbname = config$database,
         host = config$host,
         port = as.integer(config$port),
         user = config$user,
         password = config$password
     )
-}
-
-"""
-get_accounts <- function(con) {
-    dbGetQuery(con, "SELECT account_no, account_code, account_type, account_name, user_no, branch_no FROM account_chart")
-}
-"""
-
-get_records <- function(con, user_no) {
-    query <- "
-        SELECT
-            ref_no,
-            user_no,
-            upload_id,
-            transaction_date,
-            description,
-            account_name,
-            amount,
-            payment_method,
-            transaction_type,
-            invoice_no,
-            status
-        FROM records
-        WHERE status = 'active' AND user_no = ?
-    "
-    dbGetQuery(con, query, params = list(user_no))
 }
 
 normalize_month <- function(month_name) {
@@ -90,22 +64,22 @@ normalize_month <- function(month_name) {
     NA_integer_
 }
 
-filter_records_by_month <- function(records_df, month_name) {
+filter_records_by_month <- function(df, month_name) {
     month_num <- normalize_month(month_name)
     if (is.na(month_num)) {
-        return(records_df)
+        return(df)
     }
 
-    if (!('transaction_date' %in% names(records_df))) {
-        return(records_df)
+    if (!('transaction_date' %in% names(df))) {
+        return(df)
     }
 
-    parsed_dates <- tryCatch(as.Date(records_df$transaction_date), error = function(e) NA)
+    parsed_dates <- tryCatch(as.Date(df$transaction_date), error = function(e) NA)
     if (all(is.na(parsed_dates))) {
-        return(records_df)
+        return(df)
     }
 
-    records_df %>%
+    df %>%
         mutate(parsed_date = parsed_dates) %>%
         filter(as.integer(format(parsed_date, "%m")) == month_num, as.integer(format(parsed_date, "%Y")) == 2026) %>%
         select(-parsed_date)
@@ -123,6 +97,19 @@ get_record_lines <- function(con, user_no) {
     dbGetQuery(con, query, params = list(user_no))
 }
 
+calculate_account_balances <- function(record_lines_df) {
+    record_lines_df %>%
+        mutate(
+            balance = case_when(
+                account_name %in% c("Asset", "Expense") ~ debit - credit,
+                account_name %in% c("Liability", "Equity", "Revenue") ~ credit - debit,
+                TRUE ~ 0
+            )
+        ) %>%
+        group_by(transaction_type, account_name) %>%
+        summarise(Amount = sum(balance), .groups = "drop")
+}
+
 generate_income_statement <- function(account_balances) {
     total_revenue <- account_balances %>% 
         filter(account_name == 'Revenue') %>% 
@@ -131,8 +118,8 @@ generate_income_statement <- function(account_balances) {
 
     total_expenses <- account_balances %>% 
         filter(account_name == 'Expense') %>% 
-        summarise(total = sum(Amount)) 
-        %>% pull(total)
+        summarise(total = sum(Amount)) %>% 
+        pull(total)
 
     if (length(total_revenue) == 0) total_revenue <- 0
     if (length(total_expenses) == 0) total_expenses <- 0
@@ -207,7 +194,13 @@ generate_cash_flow <- function(account_balances) {
     )
 }
 
-con <- tryCatch(connect_database(payload$db), error = function(e) NULL)
+con <- tryCatch(
+    connect_database(payload$db),
+    error = function(e) {
+        cat(toJSON(list(error = paste("DB connection failed:", conditionMessage(e))), auto_unbox = TRUE))
+        quit(status = 1)
+    }
+)
 if (is.null(con)) {
     cat(toJSON(list(error = 'Unable to connect to MySQL database.'), auto_unbox = TRUE))
     quit(status = 1)
@@ -220,24 +213,26 @@ if (is.na(user_no)) {
     quit(status = 1)
 }
 
-records_df <- get_records(con, user_no)
-records_df <- filter_records_by_month(records_df, payload$month)
+record_lines_df <- get_record_lines(con, user_no)
+record_lines_df <- filter_records_by_month(record_lines_df, payload$month)
 
-if (nrow(records_df) == 0) {
+if (nrow(record_lines_df) == 0) {
     result <- list(report_type = payload$report_type, message = 'No financial data found for this database.', revenue_details = data.frame(), expense_details = data.frame(), total_revenue = 0, total_expenses = 0, net_profit = 0)
     cat(toJSON(result, auto_unbox = TRUE, null = 'null'))
     dbDisconnect(con)
     quit(status = 0)
 }
 
+account_balances <- calculate_account_balances(record_lines_df)
+
 if (payload$report_type == 'income_statement') {
-    result <- generate_income_statement(records_df)
+    result <- generate_income_statement(account_balances)
 } else if (payload$report_type == 'balance_sheet') {
-    result <- generate_balance_sheet(records_df)
+    result <- generate_balance_sheet(account_balances)
 } else if (payload$report_type == 'trial_balance') {
-    result <- generate_trial_balance(records_df)
+    result <- generate_trial_balance(account_balances)
 } else if (payload$report_type == 'cash_flow') {
-    result <- generate_cash_flow(records_df)
+    result <- generate_cash_flow(account_balances)
 } else {
     result <- list(report_type = payload$report_type, message = 'This report type is not implemented yet.', revenue_details = data.frame(), expense_details = data.frame(), total_revenue = 0, total_expenses = 0, net_profit = 0)
 }

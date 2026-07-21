@@ -221,8 +221,8 @@ async def extract_excel(file: UploadFile, user_no: int = Form(...),):
         """
 
         line_insert_query = """
-            INSERT INTO record_lines (ref_no, debit, credit)
-            VALUES (%s, %s, %s)
+            INSERT INTO record_lines (ref_no, account_name, transaction_type, debit, credit)
+            VALUES (%s, %s, %s, %s, %s)
         """
         NORMAL_DEBIT_SIDE = {"Asset", "Expense"}
 
@@ -248,6 +248,10 @@ async def extract_excel(file: UploadFile, user_no: int = Form(...),):
                 print(f"⏭ Skipping duplicate invoice: {invoice_no}")
                 continue
 
+            print("DEBUG QUERY:", insert_query)
+            print("DEBUG VALUES COUNT:", len(("user_no", "upload_id", transaction_date, description, account_name, amount, payment_method, transaction_type, invoice_no, status)))
+            print("DEBUG PLACEHOLDER COUNT:", insert_query.count("%s"))
+
             cursor.execute(
                 insert_query,
                 (
@@ -267,7 +271,7 @@ async def extract_excel(file: UploadFile, user_no: int = Form(...),):
             ref_no = cursor.lastrowid
             debit_amt = amount if account_name in NORMAL_DEBIT_SIDE else 0
             credit_amt = amount if account_name not in NORMAL_DEBIT_SIDE else 0
-            cursor.execute(line_insert_query, (ref_no, debit_amt, credit_amt))
+            cursor.execute(line_insert_query, (ref_no, account_name, transaction_type, debit_amt, credit_amt))
 
             imported_count += 1
 

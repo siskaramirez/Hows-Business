@@ -39,7 +39,9 @@ def generate_report(
             timeout=120,
         )
         if completed.returncode != 0:
-            raise RuntimeError(completed.stderr.strip() or completed.stdout.strip())
+            stdout_clean = completed.stdout.strip()
+            stderr_clean = completed.stderr.strip()
+            raise RuntimeError(stdout_clean or stderr_clean or "R script failed with no output")
 
         raw_output = completed.stdout.strip()
         if not raw_output:

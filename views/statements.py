@@ -13,6 +13,8 @@ def statements(page: ft.Page):
     ]
 
     default_month = months_list[datetime.now().month - 1]
+    current_user = page.session.store.get("user")
+    user_no = current_user.get("user_no") if current_user else None
     
     def statement_button(text):
         is_active = current_statement == text
@@ -34,7 +36,7 @@ def statements(page: ft.Page):
             height=120,
             col={"xs": 12, "md": 6},
             data=text,
-            on_click=on_statement_click
+            on_click=load_report_for_current_selection
         )
     
     def load_report_for_current_selection(e):
@@ -80,7 +82,7 @@ def statements(page: ft.Page):
             ft.ProgressRing(visible=True),
             ft.Text("Generating report...", color="#F5F5F5"),
         ], spacing=16)
-        #output_workspace.update()
+        page.update()
 
         report_type = "income_statement"
         if current_statement == "BALANCE SHEET":
@@ -97,9 +99,9 @@ def statements(page: ft.Page):
 
                 rows = []
                 for item in revenue_rows:
-                    rows.append((item.get("account_name", ""), f"₱{item.get('Amount', 0):,.2f}", "Revenue"))
+                    rows.append((item.get("Account", ""), f"₱{item.get('Amount', 0):,.2f}", "Revenue"))
                 for item in expense_rows:
-                    rows.append((item.get("account_name", ""), f"₱{item.get('Amount', 0):,.2f}", "Expense"))
+                    rows.append((item.get("Account", ""), f"₱{item.get('Amount', 0):,.2f}", "Expense"))
 
                 summary = [
                     ("Total Revenue", f"₱{data.get('total_revenue', 0):,.2f}"),
@@ -108,13 +110,12 @@ def statements(page: ft.Page):
                 ]
 
                 return ft.Column([
-                    ft.Text("Revenue & Expense Breakdown", size=15, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
                     ft.Container(
                         content=ft.DataTable(
                             columns=[
-                                ft.DataColumn(ft.Text("Account", weight=ft.FontWeight.BOLD)),
-                                ft.DataColumn(ft.Text("Amount", weight=ft.FontWeight.BOLD)),
-                                ft.DataColumn(ft.Text("Type", weight=ft.FontWeight.BOLD)),
+                                ft.DataColumn(ft.Text("Account", color="#FFFFFF", weight=ft.FontWeight.BOLD)),
+                                ft.DataColumn(ft.Text("Amount", color="#FFFFFF", weight=ft.FontWeight.BOLD)),
+                                ft.DataColumn(ft.Text("Type", color="#FFFFFF", weight=ft.FontWeight.BOLD)),
                             ],
                             rows=[
                                 ft.DataRow(cells=[
@@ -123,9 +124,8 @@ def statements(page: ft.Page):
                                     ft.DataCell(ft.Text(r[2], color="#FFFFFF")),
                                 ]) for r in rows
                             ],
-                            bgcolor="#253A5C",
-                            border=ft.Border.all(1, "#FFFFFF33"),
                             column_spacing=24,
+                            width=float("inf"),
                         ),
                         margin=ft.Margin(left=0, top=8, right=0, bottom=8),
                     ),
@@ -141,11 +141,11 @@ def statements(page: ft.Page):
                 equity_rows = data.get("equity_details", []) or []
                 rows = []
                 for item in asset_rows:
-                    rows.append((item.get("account_name", ""), f"₱{item.get('Amount', 0):,.2f}", "Asset"))
+                    rows.append((item.get("Account", ""), f"₱{item.get('Amount', 0):,.2f}", "Asset"))
                 for item in liability_rows:
-                    rows.append((item.get("account_name", ""), f"₱{item.get('Amount', 0):,.2f}", "Liability"))
+                    rows.append((item.get("Account", ""), f"₱{item.get('Amount', 0):,.2f}", "Liability"))
                 for item in equity_rows:
-                    rows.append((item.get("account_name", ""), f"₱{item.get('Amount', 0):,.2f}", "Equity"))
+                    rows.append((item.get("Account", ""), f"₱{item.get('Amount', 0):,.2f}", "Equity"))
 
                 summary = [
                     ("Total Assets", f"₱{data.get('total_assets', 0):,.2f}"),
@@ -154,13 +154,12 @@ def statements(page: ft.Page):
                 ]
 
                 return ft.Column([
-                    ft.Text("Balance Sheet Breakdown", size=15, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
                     ft.Container(
                         content=ft.DataTable(
                             columns=[
-                                ft.DataColumn(ft.Text("Account", weight=ft.FontWeight.BOLD)),
-                                ft.DataColumn(ft.Text("Amount", weight=ft.FontWeight.BOLD)),
-                                ft.DataColumn(ft.Text("Type", weight=ft.FontWeight.BOLD)),
+                                ft.DataColumn(ft.Text("Account", color="#FFFFFF", weight=ft.FontWeight.BOLD)),
+                                ft.DataColumn(ft.Text("Amount", color="#FFFFFF", weight=ft.FontWeight.BOLD)),
+                                ft.DataColumn(ft.Text("Type", color="#FFFFFF", weight=ft.FontWeight.BOLD)),
                             ],
                             rows=[
                                 ft.DataRow(cells=[
@@ -169,9 +168,8 @@ def statements(page: ft.Page):
                                     ft.DataCell(ft.Text(r[2], color="#FFFFFF")),
                                 ]) for r in rows
                             ],
-                            bgcolor="#253A5C",
-                            border=ft.Border.all(1, "#FFFFFF33"),
                             column_spacing=24,
+                            width=float("inf"),
                         ),
                         margin=ft.Margin(left=0, top=8, right=0, bottom=8),
                     ),
@@ -184,24 +182,24 @@ def statements(page: ft.Page):
             if report_type == "trial_balance":
                 rows = data.get("trial_balance", []) or []
                 return ft.Column([
-                    ft.Text("Trial Balance", size=15, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
                     ft.Container(
                         content=ft.DataTable(
                             columns=[
-                                ft.DataColumn(ft.Text("Account", weight=ft.FontWeight.BOLD)),
-                                ft.DataColumn(ft.Text("Debit", weight=ft.FontWeight.BOLD)),
-                                ft.DataColumn(ft.Text("Credit", weight=ft.FontWeight.BOLD)),
+                                ft.DataColumn(ft.Text("Account Type", color="#FFFFFF", weight=ft.FontWeight.BOLD)),
+                                ft.DataColumn(ft.Text("Account", color="#FFFFFF", weight=ft.FontWeight.BOLD)),
+                                ft.DataColumn(ft.Text("Debit", color="#FFFFFF", weight=ft.FontWeight.BOLD)),
+                                ft.DataColumn(ft.Text("Credit", color="#FFFFFF", weight=ft.FontWeight.BOLD)),
                             ],
                             rows=[
                                 ft.DataRow(cells=[
-                                    ft.DataCell(ft.Text(item.get("account_name", ""), color="#FFFFFF")),
+                                    ft.DataCell(ft.Text(item.get("Account Type", ""), color="#FFFFFF")),
+                                    ft.DataCell(ft.Text(item.get("Account", ""), color="#FFFFFF")),
                                     ft.DataCell(ft.Text(f"₱{item.get('Debit', 0):,.2f}", color="#FFFFFF")),
                                     ft.DataCell(ft.Text(f"₱{item.get('Credit', 0):,.2f}", color="#FFFFFF")),
                                 ]) for item in rows
                             ],
-                            bgcolor="#253A5C",
-                            border=ft.Border.all(1, "#FFFFFF33"),
                             column_spacing=24,
+                            width=float("inf"),
                         ),
                         margin=ft.Margin(left=0, top=8, right=0, bottom=8),
                     ),
@@ -210,24 +208,22 @@ def statements(page: ft.Page):
             if report_type == "cash_flow":
                 rows = data.get("cash_flow_details", []) or []
                 return ft.Column([
-                    ft.Text("Cash Flow Breakdown", size=15, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
                     ft.Container(
                         content=ft.DataTable(
                             columns=[
-                                ft.DataColumn(ft.Text("Account", weight=ft.FontWeight.BOLD)),
-                                ft.DataColumn(ft.Text("Amount", weight=ft.FontWeight.BOLD)),
-                                ft.DataColumn(ft.Text("Type", weight=ft.FontWeight.BOLD)),
+                                ft.DataColumn(ft.Text("Account", color="#FFFFFF", weight=ft.FontWeight.BOLD)),
+                                ft.DataColumn(ft.Text("Amount", color="#FFFFFF", weight=ft.FontWeight.BOLD)),
+                                ft.DataColumn(ft.Text("Type", color="#FFFFFF", weight=ft.FontWeight.BOLD)),
                             ],
                             rows=[
                                 ft.DataRow(cells=[
-                                    ft.DataCell(ft.Text(item.get("account_name", ""), color="#FFFFFF")),
+                                    ft.DataCell(ft.Text(item.get("Account", ""), color="#FFFFFF")),
                                     ft.DataCell(ft.Text(f"₱{item.get('Amount', 0):,.2f}", color="#FFFFFF")),
                                     ft.DataCell(ft.Text(item.get("account_type", ""), color="#FFFFFF")),
                                 ]) for item in rows
                             ],
-                            bgcolor="#253A5C",
-                            border=ft.Border.all(1, "#FFFFFF33"),
                             column_spacing=24,
+                            width=float("inf"),
                         ),
                         margin=ft.Margin(left=0, top=8, right=0, bottom=8),
                     ),
@@ -238,7 +234,7 @@ def statements(page: ft.Page):
         try:
             response = requests.post(
                 f"{API_URL}/reports",
-                json={"report_type": report_type, "month": selected_month},
+                json={"report_type": report_type, "month": selected_month, "user_no": user_no},
                 timeout=120,
             )
             response.raise_for_status()
@@ -248,16 +244,17 @@ def statements(page: ft.Page):
                 content = ft.Text(data["error"], size=13, color="#FFFFFF")
             else:
                 content = build_report_view(data)
+
+        except requests.exceptions.HTTPError:
+            print("SERVER RESPONSE BODY:", response.text)
+            content = ft.Text(
+                f"Server error ({response.status_code}):\n{response.text}",
+                size=13,
+                color="#FFFFFF",
+            )
+
         except Exception as exc:
             content = ft.Column([
-                ft.Text(
-                    f"{current_statement} — {selected_month.upper()} 2026",
-                    size=16,
-                    weight=ft.FontWeight.BOLD,
-                    color="#FFFFFF",
-                    style=ft.TextStyle(letter_spacing=1),
-                ),
-                ft.Divider(height=1, color="#FFFFFF33"),
                 ft.Text(
                     f"Unable to reach the FastAPI reports service.\nURL: {API_URL}/reports\nError: {exc}",
                     size=13,
@@ -273,15 +270,9 @@ def statements(page: ft.Page):
                 color="#FFFFFF",
                 style=ft.TextStyle(letter_spacing=1),
             ),
-            ft.Divider(height=1, color="#FFFFFF33"),
             content,
         ], spacing=16)
-        #output_workspace.update()
-
-    def on_statement_click(e):
-        nonlocal current_statement
-        current_statement = e.control.data
-        load_report_for_current_selection()
+        page.update()
             
     month_dropdown = ft.Dropdown(
         hint_text="Select a month...",
@@ -295,7 +286,17 @@ def statements(page: ft.Page):
         height=55,
         value=default_month,
     )
-    month_dropdown.on_change = lambda e: load_report_for_current_selection()
+
+    def on_month_change(e):
+        if current_statement:
+            class _FakeControl:
+                data = current_statement
+                
+            class _FakeEvent:
+                control = _FakeControl()
+            load_report_for_current_selection(_FakeEvent())
+
+    month_dropdown.on_change = on_month_change
 
     actions_row = ft.ResponsiveRow(
         controls = [
@@ -325,12 +326,9 @@ def statements(page: ft.Page):
     output_workspace = ft.Container(
         content=ft.Column([
             ft.Text("Select a statement and month to view the report.", italic=True, color=ft.Colors.BLUE_GREY_200)
-        ], spacing=12),
+        ], spacing=12, margin=ft.Margin(left=15, top=15, right=0, bottom=0)),
         border_radius=20,
-        height=350,
     )
-
-    load_report_for_current_selection()
 
     return ft.Container(
         content=ft.Column([
