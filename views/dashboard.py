@@ -26,6 +26,7 @@ def dashboard(page: ft.Page):
             padding=20,
             border_radius=20,
             height=140,
+            
         )
     
     kpi_row = ft.ResponsiveRow(
@@ -37,6 +38,7 @@ def dashboard(page: ft.Page):
         ],
         run_spacing=15,
         spacing=15,
+        margin=ft.Margin(left=10, top=10, right=10, bottom=0),
     )
 
     current_filter = "6 MONTHS"
@@ -115,8 +117,10 @@ def dashboard(page: ft.Page):
             )
         ]),
         bgcolor=ft.Colors.WHITE,
-        padding=25,
+        padding=20,
         border_radius=20,
+        margin=ft.Margin.all(10),
+        shadow=ft.BoxShadow(blur_radius=10, color=ft.Colors.with_opacity(0.15, ft.Colors.BLACK), offset=ft.Offset(0, 0))
     )
 
     return ft.Container(

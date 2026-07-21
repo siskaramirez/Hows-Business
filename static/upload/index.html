@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <title>Import Transactions</title>
+
+    <link rel="stylesheet" href="/static/upload/style.css">
+
+</head>
+
+<body>
+
+<div class="modal">
+
+    <h2>Import Transaction Records</h2>
+
+    <div id="drop-zone">
+
+        <div class="icon">📄</div>
+
+        <p>Drag & Drop Excel File</p>
+
+        <small>or click to browse</small>
+
+        <input
+            type="file"
+            id="file-input"
+            accept=".xlsx"
+            hidden
+        >
+
+    </div>
+
+    <div id="status"></div>
+
+</div>
+
+<script src="/static/upload/script.js"></script>
+
+</body>
+
+</html>

@@ -1,4 +1,5 @@
 import flet as ft
+import requests
 from components.navbar import navbar
 from components.sidebar import sidebar
 from components.header import header
@@ -152,4 +153,5 @@ def main(page: ft.Page):
     else:
         route_change()
 
-ft.run(main, view=ft.AppView.WEB_BROWSER)
+if __name__ == "__main__":
+    ft.run(main, view=ft.AppView.WEB_BROWSER)

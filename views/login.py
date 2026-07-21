@@ -1,5 +1,8 @@
 import flet as ft
+import requests
 from components.auth import auth_card
+
+API_URL = "http://127.0.0.1:8000"
 
 def login(page: ft.Page, on_back_callback):
     email_input = ft.TextField(
@@ -26,6 +29,52 @@ def login(page: ft.Page, on_back_callback):
         height=45,
     )
 
+    def handle_login(e):
+        if not email_input.value or not password_input.value:
+            snack = ft.SnackBar(
+                ft.Text("Please enter both email and password."), 
+                bgcolor=ft.Colors.RED_400
+            )
+            page.overlay.append(snack)
+            snack.open = True
+            page.update()
+            return
+
+        data = {
+            "email": email_input.value,
+            "password": password_input.value
+        }
+
+        try:
+            response = requests.post(f"{API_URL}/login", json=data)
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                # Store user info in page session to verify PIN
+                user = data.get("user")
+                page.session.store.set("user", user)
+                
+                # Navigate to PIN verification
+                page.navigate("/verify-pin")
+            else:
+                snack = ft.SnackBar(
+                    ft.Text("Invalid email or password!"), 
+                    bgcolor=ft.Colors.RED_400
+                )
+                page.overlay.append(snack)
+                snack.open = True
+                page.update()
+
+        except Exception as err:
+            snack = ft.SnackBar(
+                ft.Text(f"Connection error: {err}"), 
+                bgcolor=ft.Colors.RED_400
+            )
+            page.overlay.append(snack)
+            snack.open = True
+            page.update()
+
     forgot_password_btn = ft.TextButton(
         content=ft.Text(
             "Forgot Password?", 
@@ -43,7 +92,7 @@ def login(page: ft.Page, on_back_callback):
         border_radius=5,
         height=45,
         alignment=ft.Alignment.CENTER,
-        on_click=lambda _: page.navigate("/verify-pin"),
+        on_click=handle_login,
     )
 
     signup_btn = ft.TextButton(

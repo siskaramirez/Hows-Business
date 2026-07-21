@@ -1,0 +1,258 @@
+library(jsonlite)
+library(DBI)
+library(RMariaDB)
+library(dplyr)
+
+
+args <- commandArgs(trailingOnly = TRUE)
+input_path <- if (length(args) > 0) args[1] else ''
+
+
+if (nzchar(input_path) && file.exists(input_path)) {
+    payload <- fromJSON(input_path)
+} else {
+    config_path <- "../db_config.json"
+    if (file.exists(config_path)) {
+        db_cfg <- fromJSON(config_path)
+        payload <- list(
+            report_type = 'income_statement',
+            month = '',
+            user_no = NA_integer_,
+            db = list(host=db_cfg$host, port=db_cfg$port, user=db_cfg$user, password=db_cfg$password, database=db_cfg$database)
+        )
+    } else {
+        payload <- list(
+            report_type = 'income_statement', 
+            month = '', 
+            user_no = NA_integer_,
+            db = list(host='localhost', port=3306, user='root', password='Japellako99', database='delikart')
+        )
+    }
+}
+
+connect_database <- function(config) {
+    dbConnect(
+        RMySQL::MySQL(),
+        dbname = config$database,
+        host = config$host,
+        port = as.integer(config$port),
+        user = config$user,
+        password = config$password
+    )
+}
+
+"""
+get_accounts <- function(con) {
+    dbGetQuery(con, "SELECT account_no, account_code, account_type, account_name, user_no, branch_no FROM account_chart")
+}
+"""
+
+get_records <- function(con, user_no) {
+    query <- "
+        SELECT
+            ref_no,
+            user_no,
+            upload_id,
+            transaction_date,
+            description,
+            account_name,
+            amount,
+            payment_method,
+            transaction_type,
+            invoice_no,
+            status
+        FROM records
+        WHERE status = 'active' AND user_no = ?
+    "
+    dbGetQuery(con, query, params = list(user_no))
+}
+
+normalize_month <- function(month_name) {
+    if (is.null(month_name) || is.na(month_name)) {
+        return(NA_integer_)
+    }
+
+    trimmed <- trimws(as.character(month_name))
+    if (!nzchar(trimmed)) {
+        return(NA_integer_)
+    }
+
+    month_num <- suppressWarnings(as.integer(trimmed))
+    if (!is.na(month_num) && month_num >= 1 && month_num <= 12) {
+        return(month_num)
+    }
+
+    month_index <- match(tolower(trimmed), tolower(month.name))
+    if (!is.na(month_index)) {
+        return(month_index)
+    }
+
+    NA_integer_
+}
+
+filter_records_by_month <- function(records_df, month_name) {
+    month_num <- normalize_month(month_name)
+    if (is.na(month_num)) {
+        return(records_df)
+    }
+
+    if (!('transaction_date' %in% names(records_df))) {
+        return(records_df)
+    }
+
+    parsed_dates <- tryCatch(as.Date(records_df$transaction_date), error = function(e) NA)
+    if (all(is.na(parsed_dates))) {
+        return(records_df)
+    }
+
+    records_df %>%
+        mutate(parsed_date = parsed_dates) %>%
+        filter(as.integer(format(parsed_date, "%m")) == month_num, as.integer(format(parsed_date, "%Y")) == 2026) %>%
+        select(-parsed_date)
+}
+
+get_record_lines <- function(con, user_no) {
+    query <- "
+        SELECT
+            rl.line_no, rl.ref_no, rl.debit, rl.credit,
+            r.account_name, r.transaction_type, r.transaction_date
+        FROM record_lines rl
+        INNER JOIN records r ON rl.ref_no = r.ref_no
+        WHERE r.status = 'active' AND r.user_no = ?
+    "
+    dbGetQuery(con, query, params = list(user_no))
+}
+
+generate_income_statement <- function(records_df) {
+    account_balances <- records_df %>%
+        filter(account_name %in% c('Revenue', 'Expense')) %>%
+        group_by(account_name, transaction_type) %>%
+        summarise(Amount = sum(amount), .groups = 'drop')
+
+    total_revenue <- account_balances %>% 
+        filter(account_name == 'Revenue') %>% 
+        summarise(total = sum(Amount)) %>% 
+        pull(total)
+
+    total_expenses <- account_balances %>% 
+        filter(account_name == 'Expense') %>% 
+        summarise(total = sum(Amount)) 
+        %>% pull(total)
+
+    if (length(total_revenue) == 0) total_revenue <- 0
+    if (length(total_expenses) == 0) total_expenses <- 0
+
+    list(
+        report_type = 'income_statement',
+        revenue_details = as.data.frame(account_balances %>% filter(account_name == 'Revenue') %>% rename(Account = transaction_type) %>% select(Account, Amount)),
+        expense_details = as.data.frame(account_balances %>% filter(account_name == 'Expense') %>% rename(Account = transaction_type) %>% select(Account, Amount)),
+        total_revenue = total_revenue,
+        total_expenses = total_expenses,
+        net_profit = total_revenue - total_expenses
+    )
+}
+
+generate_balance_sheet <- function(records_df) {
+    account_balances <- records_df %>%
+        filter(account_name %in% c('Asset', 'Liability', 'Equity')) %>%
+        group_by(account_name, transaction_type) %>%
+        summarise(Amount = sum(amount), .groups = 'drop')
+
+    total_assets <- account_balances %>%
+        filter(account_name == 'Asset') %>%
+        summarise(total = sum(Amount)) %>%
+        pull(total)
+
+    total_liabilities <- account_balances %>%
+        filter(account_name == 'Liability') %>%
+        summarise(total = sum(Amount)) %>%
+        pull(total)
+
+    total_equity <- account_balances %>%
+        filter(account_name == 'Equity') %>%
+        summarise(total = sum(Amount)) %>%
+        pull(total)
+
+    if (length(total_assets) == 0) total_assets <- 0
+    if (length(total_liabilities) == 0) total_liabilities <- 0
+    if (length(total_equity) == 0) total_equity <- 0
+
+    list(
+        report_type = 'balance_sheet',
+        asset_details = as.data.frame(account_balances %>% filter(account_name == 'Asset') %>% rename(Account = transaction_type) %>% select(Account, Amount)),
+        liability_details = as.data.frame(account_balances %>% filter(account_name == 'Liability') %>% rename(Account = transaction_type) %>% select(Account, Amount)),
+        equity_details = as.data.frame(account_balances %>% filter(account_name == 'Equity') %>% rename(Account = transaction_type) %>% select(Account, Amount)),
+        total_assets = total_assets,
+        total_liabilities = total_liabilities,
+        total_equity = total_equity
+    )
+}
+
+generate_trial_balance <- function(records_df) {
+    trial_balance <- records_df %>%
+        group_by(account_name, transaction_type) %>%
+        summarise(total = sum(amount), .groups = 'drop') %>%
+        mutate(
+            Debit = ifelse(account_name %in% c('Asset', 'Expense'), total, 0),
+            Credit = ifelse(account_name %in% c('Liability', 'Equity', 'Revenue'), total, 0)
+        ) %>%
+        rename(Account = transaction_type, `Account Type` = account_name) %>%
+        select(Account, `Account Type`, Debit, Credit)
+
+    list(
+        report_type = 'trial_balance',
+        trial_balance = as.data.frame(trial_balance)
+    )
+}
+
+generate_cash_flow <- function(records_df) {
+    account_balances <- records_df %>%
+        filter(account_name %in% c('Asset', 'Liability', 'Equity')) %>%
+        group_by(account_name, transaction_type) %>%
+        summarise(Amount = sum(amount), .groups = 'drop')
+
+    list(
+        report_type = 'cash_flow',
+        cash_flow_details = as.data.frame(cash_flow)
+    )
+}
+
+con <- tryCatch(connect_database(payload$db), error = function(e) NULL)
+if (is.null(con)) {
+    cat(toJSON(list(error = 'Unable to connect to MySQL database.'), auto_unbox = TRUE))
+    quit(status = 1)
+}
+
+user_no <- suppressWarnings(as.integer(payload$user_no))
+if (is.na(user_no)) {
+    cat(toJSON(list(error = 'Missing or invalid user_no.'), auto_unbox = TRUE))
+    dbDisconnect(con)
+    quit(status = 1)
+}
+
+records_df <- get_records(con, user_no)
+records_df <- filter_records_by_month(records_df, payload$month)
+
+if (nrow(records_df) == 0) {
+    result <- list(report_type = payload$report_type, message = 'No financial data found for this database.', revenue_details = data.frame(), expense_details = data.frame(), total_revenue = 0, total_expenses = 0, net_profit = 0)
+    cat(toJSON(result, auto_unbox = TRUE, null = 'null'))
+    dbDisconnect(con)
+    quit(status = 0)
+}
+
+if (payload$report_type == 'income_statement') {
+    result <- generate_income_statement(records_df)
+} else if (payload$report_type == 'balance_sheet') {
+    result <- generate_balance_sheet(records_df)
+} else if (payload$report_type == 'trial_balance') {
+    result <- generate_trial_balance(records_df)
+} else if (payload$report_type == 'cash_flow') {
+    result <- generate_cash_flow(records_df)
+} else {
+    result <- list(report_type = payload$report_type, message = 'This report type is not implemented yet.', revenue_details = data.frame(), expense_details = data.frame(), total_revenue = 0, total_expenses = 0, net_profit = 0)
+}
+
+cat(toJSON(result, auto_unbox = TRUE, null = 'null'))
+flush.console()
+dbDisconnect(con)
+quit(status = 0)

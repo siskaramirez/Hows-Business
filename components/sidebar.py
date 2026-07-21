@@ -97,10 +97,8 @@ def sidebar(page: ft.Page, active_route: str):
             create_menu_item("RECORDS", "/records"),
             create_menu_item("FINANCIAL STATEMENT", "/statements"),
             create_menu_item("SIMULATION", "/simulation"),
-            create_menu_item("STAFFS", "/staffs"),
             
             create_section_label("Account"),
-            create_menu_item("SETTINGS", "/settings"),
             create_menu_item("LOGOUT", "/login", is_logout=True),
         ],
         spacing=4,

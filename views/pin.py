@@ -1,4 +1,7 @@
 import flet as ft
+import requests
+
+API_URL = "http://127.0.0.1:8000"
 
 def pin(page: ft.Page, mode="create"):
     is_create = (mode == "create")
@@ -9,6 +12,7 @@ def pin(page: ft.Page, mode="create"):
     )
     action_btn_text = "SAVE" if is_create else "VERIFY"
 
+    error_text = ft.Text(color="red", visible=False, size=13)
     pin_fields = [ft.TextField() for _ in range(4)]
 
     def on_pin_change(e, current_index):
@@ -20,20 +24,49 @@ def pin(page: ft.Page, mode="create"):
             page.run_task(pin_fields[current_index + 1].focus)
             page.update()
 
-    def clear_pin(_):
+    def clear_pin(_=None):
         for field in pin_fields:
             field.value = ""
+        error_text.visible = False
         page.run_task(pin_fields[0].focus)
+        page.update()
+    
+    def show_error(message: str):
+        error_text.value = message
+        error_text.visible = True
         page.update()
         
     def handle_submit(_):
         entered_pin = "".join([f.value for f in pin_fields if f.value])
+
         if len(entered_pin) < 4:
             print("Error: Please complete the 4-digit PIN.")
             return
             
-        print(f"PIN Submitted ({mode}): {entered_pin}")
-        page.navigate("/dashboard")
+        user = page.session.store.get("user")
+        if not user or "email" not in user:
+            page.navigate("/login")
+            return
+        
+        endpoint = "/set-pin" if is_create else "/verify-pin"
+
+        try:
+            response = requests.post(
+                f"{API_URL}{endpoint}",
+                json={"email": user["email"], "pin": entered_pin},
+                timeout=5
+            )
+
+            if response.status_code == 200:
+                print(f"PIN Submitted ({mode}): {entered_pin}")
+                error_text.visible = False
+                page.navigate("/dashboard")
+            else:
+                data = response.json()
+                show_error(data.get("detail", "Invalid PIN. Please try again."))
+                
+        except requests.exceptions.RequestException:
+            show_error("Connection error: Unable to reach the server.")
 
     pin_box_row = ft.Row(spacing=15, alignment=ft.MainAxisAlignment.CENTER)
     for i in range(4):
