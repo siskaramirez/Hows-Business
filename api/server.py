@@ -220,6 +220,14 @@ async def extract_excel(file: UploadFile, user_no: int = Form(...),):
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """
 
+        line_insert_query = """
+            INSERT INTO record_lines (ref_no, debit, credit)
+            VALUES (%s, %s, %s)
+        """
+        NORMAL_DEBIT_SIDE = {"Asset", "Expense"}
+
+        imported_count = 0
+
         for row in extracted_data:
             transaction_date = row.get("transaction_date", row.get("Date"))
             description = row.get("description", row.get("Description", ""))
@@ -231,6 +239,14 @@ async def extract_excel(file: UploadFile, user_no: int = Form(...),):
                 "invoice_no", row.get("Invoice No.", row.get("Invoice No"))
             )
             status = row.get("status", "active")
+
+            cursor.execute(
+                "SELECT ref_no FROM records WHERE invoice_no = %s AND user_no = %s",
+                (invoice_no, user_no),
+            )
+            if cursor.fetchone():
+                print(f"⏭ Skipping duplicate invoice: {invoice_no}")
+                continue
 
             cursor.execute(
                 insert_query,
@@ -247,6 +263,13 @@ async def extract_excel(file: UploadFile, user_no: int = Form(...),):
                     status,
                 ),
             )
+
+            ref_no = cursor.lastrowid
+            debit_amt = amount if account_name in NORMAL_DEBIT_SIDE else 0
+            credit_amt = amount if account_name not in NORMAL_DEBIT_SIDE else 0
+            cursor.execute(line_insert_query, (ref_no, debit_amt, credit_amt))
+
+            imported_count += 1
 
         conn.commit()
 

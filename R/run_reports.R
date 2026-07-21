@@ -123,12 +123,7 @@ get_record_lines <- function(con, user_no) {
     dbGetQuery(con, query, params = list(user_no))
 }
 
-generate_income_statement <- function(records_df) {
-    account_balances <- records_df %>%
-        filter(account_name %in% c('Revenue', 'Expense')) %>%
-        group_by(account_name, transaction_type) %>%
-        summarise(Amount = sum(amount), .groups = 'drop')
-
+generate_income_statement <- function(account_balances) {
     total_revenue <- account_balances %>% 
         filter(account_name == 'Revenue') %>% 
         summarise(total = sum(Amount)) %>% 
@@ -152,12 +147,7 @@ generate_income_statement <- function(records_df) {
     )
 }
 
-generate_balance_sheet <- function(records_df) {
-    account_balances <- records_df %>%
-        filter(account_name %in% c('Asset', 'Liability', 'Equity')) %>%
-        group_by(account_name, transaction_type) %>%
-        summarise(Amount = sum(amount), .groups = 'drop')
-
+generate_balance_sheet <- function(account_balances) {
     total_assets <- account_balances %>%
         filter(account_name == 'Asset') %>%
         summarise(total = sum(Amount)) %>%
@@ -188,28 +178,28 @@ generate_balance_sheet <- function(records_df) {
     )
 }
 
-generate_trial_balance <- function(records_df) {
-    trial_balance <- records_df %>%
-        group_by(account_name, transaction_type) %>%
-        summarise(total = sum(amount), .groups = 'drop') %>%
+generate_trial_balance <- function(account_balances) {
+    trial_balance <- account_balances %>%
         mutate(
-            Debit = ifelse(account_name %in% c('Asset', 'Expense'), total, 0),
-            Credit = ifelse(account_name %in% c('Liability', 'Equity', 'Revenue'), total, 0)
+            Debit = ifelse(account_name %in% c('Asset', 'Expense'), pmax(Amount, 0), 0),
+            Credit = ifelse(account_name %in% c('Liability', 'Equity', 'Revenue'), pmax(Amount, 0), 0)
         ) %>%
         rename(Account = transaction_type, `Account Type` = account_name) %>%
         select(Account, `Account Type`, Debit, Credit)
 
     list(
         report_type = 'trial_balance',
-        trial_balance = as.data.frame(trial_balance)
+        trial_balance = as.data.frame(trial_balance),
+        total_debit = sum(trial_balance$Debit),
+        total_credit = sum(trial_balance$Credit)
     )
 }
 
-generate_cash_flow <- function(records_df) {
-    account_balances <- records_df %>%
+generate_cash_flow <- function(account_balances) {
+    cash_flow <- account_balances %>%
         filter(account_name %in% c('Asset', 'Liability', 'Equity')) %>%
-        group_by(account_name, transaction_type) %>%
-        summarise(Amount = sum(amount), .groups = 'drop')
+        rename(Account = transaction_type, `Account Type` = account_name) %>%
+        select(`Account Type`, Account, Amount)
 
     list(
         report_type = 'cash_flow',
