@@ -92,10 +92,27 @@ def statements(page: ft.Page):
         elif current_statement == "CASH FLOW":
             report_type = "cash_flow"
 
+        def empty_state(message: str):
+            return ft.Container(
+                content=ft.Text(
+                    message,
+                    size=12,
+                    italic=True,
+                    color=ft.Colors.BLUE_GREY_300,
+                    text_align=ft.TextAlign.CENTER,
+                ),
+                alignment=ft.Alignment.CENTER,
+                padding=40,
+                expand=True,
+            )
+
         def build_report_view(data):
             if report_type == "income_statement":
                 revenue_rows = data.get("revenue_details", []) or []
                 expense_rows = data.get("expense_details", []) or []
+
+                if not revenue_rows and not expense_rows:
+                    return empty_state("No income statement data available for this period.")
 
                 rows = []
                 for item in revenue_rows:
@@ -127,7 +144,7 @@ def statements(page: ft.Page):
                             column_spacing=24,
                             width=float("inf"),
                         ),
-                        margin=ft.Margin(left=0, top=8, right=0, bottom=8),
+                        margin=ft.Margin(left=15, top=5, right=15, bottom=5),
                     ),
                     ft.Column([
                         ft.Text(f"{label}: {value}", size=13, color="#FFFFFF")
@@ -139,6 +156,10 @@ def statements(page: ft.Page):
                 asset_rows = data.get("asset_details", []) or []
                 liability_rows = data.get("liability_details", []) or []
                 equity_rows = data.get("equity_details", []) or []
+
+                if not asset_rows and not liability_rows and not equity_rows:
+                    return empty_state("No balance sheet data available for this period.")
+    
                 rows = []
                 for item in asset_rows:
                     rows.append((item.get("Account", ""), f"₱{item.get('Amount', 0):,.2f}", "Asset"))
@@ -171,7 +192,7 @@ def statements(page: ft.Page):
                             column_spacing=24,
                             width=float("inf"),
                         ),
-                        margin=ft.Margin(left=0, top=8, right=0, bottom=8),
+                        margin=ft.Margin(left=15, top=5, right=15, bottom=5),
                     ),
                     ft.Column([
                         ft.Text(f"{label}: {value}", size=13, color="#FFFFFF")
@@ -181,6 +202,10 @@ def statements(page: ft.Page):
 
             if report_type == "trial_balance":
                 rows = data.get("trial_balance", []) or []
+                
+                if not rows:
+                    return empty_state("No trial balance data available for this period.")
+
                 return ft.Column([
                     ft.Container(
                         content=ft.DataTable(
@@ -201,12 +226,16 @@ def statements(page: ft.Page):
                             column_spacing=24,
                             width=float("inf"),
                         ),
-                        margin=ft.Margin(left=0, top=8, right=0, bottom=8),
+                        margin=ft.Margin(left=15, top=5, right=15, bottom=5),
                     ),
                 ], spacing=12)
 
             if report_type == "cash_flow":
                 rows = data.get("cash_flow_details", []) or []
+
+                if not rows:
+                    return empty_state("No cash flow data available for this period.")
+    
                 return ft.Column([
                     ft.Container(
                         content=ft.DataTable(
@@ -225,7 +254,7 @@ def statements(page: ft.Page):
                             column_spacing=24,
                             width=float("inf"),
                         ),
-                        margin=ft.Margin(left=0, top=8, right=0, bottom=8),
+                        margin=ft.Margin(left=15, top=5, right=15, bottom=5),
                     ),
                 ], spacing=12)
 
@@ -324,10 +353,23 @@ def statements(page: ft.Page):
     )
 
     output_workspace = ft.Container(
-        content=ft.Column([
-            ft.Text("Select a statement and month to view the report.", italic=True, color=ft.Colors.BLUE_GREY_200)
-        ], spacing=12, margin=ft.Margin(left=15, top=15, right=0, bottom=0)),
+        content=ft.Column(
+            controls=[
+                ft.Text(
+                    "Select a statement and month to view the report.", 
+                    size=12,
+                    italic=True, 
+                    color=ft.Colors.BLUE_GREY_300,
+                    text_align=ft.TextAlign.CENTER,
+                )
+            ], 
+            alignment=ft.MainAxisAlignment.CENTER,
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            spacing=12,
+        ),
+        alignment=ft.Alignment.CENTER,
         border_radius=20,
+        padding=40
     )
 
     return ft.Container(

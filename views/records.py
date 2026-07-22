@@ -1,6 +1,7 @@
 import flet as ft
 from datetime import datetime
 import requests
+import asyncio
 
 API_URL = "http://127.0.0.1:8000"
 
@@ -14,7 +15,6 @@ def records(page: ft.Page):
             date.update()
 
     date_picker = ft.DatePicker(on_change=handle_date)
-    page.overlay.append(date_picker)
 
     input_style = {
         "bgcolor": ft.Colors.WHITE,
@@ -42,7 +42,7 @@ def records(page: ft.Page):
         hint_text="Select date...",
         hint_style=ft.TextStyle(color=ft.Colors.BLUE_GREY_300),
         read_only=True,
-        on_click=lambda _: date_picker.pick_date(),
+        on_click=lambda _: page.show_dialog(date_picker),
         **input_style
     )
 
@@ -57,6 +57,9 @@ def records(page: ft.Page):
         hint_style=ft.TextStyle(color=ft.Colors.BLUE_GREY_300),
         value=None,
         options=[
+            ft.dropdown.Option("Asset"), 
+            ft.dropdown.Option("Liability"), 
+            ft.dropdown.Option("Equity"), 
             ft.dropdown.Option("Revenue"), 
             ft.dropdown.Option("Expense")
         ], 
@@ -86,8 +89,25 @@ def records(page: ft.Page):
         hint_style=ft.TextStyle(color=ft.Colors.BLUE_GREY_300),
         value=None, 
         options=[
-            ft.dropdown.Option("COGS Sales"), 
-            ft.dropdown.Option("Operating Expense")
+            ft.dropdown.Option("Cash"), 
+            ft.dropdown.Option("Kitchen Equipment"), 
+            ft.dropdown.Option("Inventory"), 
+            ft.dropdown.Option("Accounts Payable"), 
+            ft.dropdown.Option("Loans Payable"), 
+            ft.dropdown.Option("Lease Liability"), 
+            ft.dropdown.Option("Owner's Equity"), 
+            ft.dropdown.Option("Retained Earnings"), 
+            ft.dropdown.Option("Food Sales"), 
+            ft.dropdown.Option("Beverage and Snack Sales"), 
+            ft.dropdown.Option("Cost of Goods Sold (COGS)"), 
+            ft.dropdown.Option("Canteen Rent Expense"), 
+            ft.dropdown.Option("Utilities Expense"), 
+            ft.dropdown.Option("Sales"), 
+            ft.dropdown.Option("Rent Expense"), 
+            ft.dropdown.Option("Office Supplies"), 
+            ft.dropdown.Option("Service Revenue"), 
+            ft.dropdown.Option("Cost of Goods Sold"), 
+            ft.dropdown.Option("Equipment")
         ], 
         **dropdown_style
     )
@@ -173,7 +193,10 @@ def records(page: ft.Page):
     def update_table_view():
         table_container.controls.clear()
         table_container.controls.append(build_data_rows())
-        table_container.update()
+        page.update()
+
+    current_user = page.session.store.get("user")
+    user_no = current_user.get("user_no") if current_user else None
 
     def handle_save_record(e):
         if not amount.value or not description.value or not account.value or not date.value:
@@ -184,6 +207,7 @@ def records(page: ft.Page):
             return
         
         data = {
+            "user_no": user_no,
             "transaction_date": date.value,
             "description": description.value,
             "account_name": account.value,
@@ -214,6 +238,8 @@ def records(page: ft.Page):
                 transaction_type.update()
 
                 update_table_view()
+            else:
+                print("SERVER ERROR:", response.status_code, response.text)
         except Exception as err:
             print("Failed to save entry:", err)
 

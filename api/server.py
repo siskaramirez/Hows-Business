@@ -57,6 +57,8 @@ class PinVerifyRequest(BaseModel):
     pin: str
 
 class RecordCreate(BaseModel):
+    user_no: int
+    upload_id: int | None = None
     transaction_date: date
     description: str
     account_name: str
@@ -248,10 +250,6 @@ async def extract_excel(file: UploadFile, user_no: int = Form(...),):
                 print(f"⏭ Skipping duplicate invoice: {invoice_no}")
                 continue
 
-            print("DEBUG QUERY:", insert_query)
-            print("DEBUG VALUES COUNT:", len(("user_no", "upload_id", transaction_date, description, account_name, amount, payment_method, transaction_type, invoice_no, status)))
-            print("DEBUG PLACEHOLDER COUNT:", insert_query.count("%s"))
-
             cursor.execute(
                 insert_query,
                 (
@@ -378,13 +376,25 @@ async def add_manual_record(record: RecordCreate):
         )
 
         cursor.execute(query, values)
-        conn.commit()
+        
+        ref_no = cursor.lastrowid
 
+        NORMAL_DEBIT_SIDE = {"Asset", "Expense"}
+        debit_amt = record.amount if record.account_name in NORMAL_DEBIT_SIDE else 0
+        credit_amt = record.amount if record.account_name not in NORMAL_DEBIT_SIDE else 0
+
+        cursor.execute(
+            "INSERT INTO record_lines (ref_no, account_name, transaction_type, debit, credit) VALUES (%s, %s, %s, %s, %s)",
+            (ref_no, record.account_name, record.transaction_type, debit_amt, credit_amt),
+        )
+
+        conn.commit()
         cursor.close()
         conn.close()
         
         return {"status": "success", "message": "Record saved successfully"}
     except Exception as e:
+        conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))    
 
 
