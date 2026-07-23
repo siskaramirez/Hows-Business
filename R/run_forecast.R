@@ -24,8 +24,8 @@ conn <- tryCatch(
 
 result <- tryCatch(
     {
-        forecast <- forecast_sales(conn, user_no, periods = periods, future_only = TRUE)
-        list(status = "success", forecast = forecast)
+        forecast_result <- forecast_sales(conn, user_no, periods = periods, future_only = TRUE)
+        c(list(status = "success"), forecast_result)
     },
     error = function(e) {
         list(status = "failed", error = conditionMessage(e))
