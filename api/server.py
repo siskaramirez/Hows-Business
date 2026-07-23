@@ -12,10 +12,17 @@ from unittest import result
 from pydantic import BaseModel
 from typing import Optional
 from datetime import date
+from pathlib import Path
 from api import records
 from api.database import get_db_connection
 from api.reporting import generate_report
 from services.template_generator import generate_transaction_template
+
+import traceback
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+FORECAST_R_SCRIPT = BASE_DIR / "R" / "run_forecast.R"
+SIMULATION_R_SCRIPT = BASE_DIR / "R" / "run_simulation.R"
 
 
 app = FastAPI(
@@ -66,6 +73,12 @@ class RecordCreate(BaseModel):
     payment_method: Optional[str] = None
     transaction_type: Optional[str] = None
     invoice_no: Optional[str] = None
+
+class ReportRequest(BaseModel):
+    user_no: int
+    upload_id: int | None = None
+    month: str | None = None
+    report_type: str = "income_statement"
 
 
 @app.get("/")
@@ -398,12 +411,6 @@ async def add_manual_record(record: RecordCreate):
         raise HTTPException(status_code=500, detail=str(e))    
 
 
-class ReportRequest(BaseModel):
-    user_no: int
-    upload_id: int | None = None
-    month: str | None = None
-    report_type: str = "income_statement"
-
 @app.post("/reports")
 def generate_reports(payload: ReportRequest):
     try:
@@ -429,6 +436,64 @@ async def get_financial_report(report_type: str, user_no: int = Query(...), mont
         return data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/forecast")
+async def get_forecast(user_no: int = Query(...), periods: int = Query(6)):
+
+    try:
+        completed = subprocess.run(
+            [
+                r"C:\Program Files\R\R-4.5.2\bin\Rscript.exe",
+                FORECAST_R_SCRIPT.name,
+                str(user_no),
+                str(periods),
+            ],
+            capture_output=True, 
+            text=True, 
+            cwd=str(FORECAST_R_SCRIPT.parent), 
+            timeout=120,
+        )
+        if completed.returncode != 0:
+            raise RuntimeError(completed.stdout.strip() or completed.stderr.strip())
+
+        raw = completed.stdout.strip()
+        start, end = raw.find("{"), raw.rfind("}")
+        if start != -1 and end != -1:
+            raw = raw[start:end + 1]
+        return json.loads(raw)
+    except Exception as e:
+        error_msg = f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
+        print("Backend Forecast Error:", error_msg)
+        raise HTTPException(status_code=500, detail=str(e) or "R script execution failed")
+
+
+class SimulationRequest(BaseModel):
+    user_no: int
+    seasonality: float = 50
+    inflation: float = 0
+    competition: float = 0
+
+@app.post("/simulate")
+async def run_simulation(payload: SimulationRequest):
+
+    try:
+        completed = subprocess.run(
+            ["Rscript", str(SIMULATION_R_SCRIPT), str(payload.user_no),
+             str(payload.seasonality), str(payload.inflation), str(payload.competition)],
+            capture_output=True, text=True, cwd=str(BASE_DIR), timeout=120,
+        )
+        if completed.returncode != 0:
+            raise RuntimeError(completed.stdout.strip() or completed.stderr.strip())
+
+        raw = completed.stdout.strip()
+        start, end = raw.find("{"), raw.rfind("}")
+        if start != -1 and end != -1:
+            raw = raw[start:end + 1]
+        return json.loads(raw)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 if __name__ == "__main__":
     import uvicorn

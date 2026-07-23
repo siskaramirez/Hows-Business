@@ -1,6 +1,35 @@
 import flet as ft
+import requests
+from datetime import datetime
+
+API_URL = "http://127.0.0.1:8000"
 
 def dashboard(page: ft.Page):
+    current_user = page.session.store.get("user")
+    user_no = current_user.get("user_no") if current_user else None
+
+    forecast_points = []
+    forecast_error = None
+
+    if user_no:
+        try:
+            resp = requests.get(f"{API_URL}/forecast", params={"user_no": user_no, "periods": 6}, timeout=60)
+            
+            data = resp.json()
+            
+            if resp.status_code == 200 and not data.get("error"):
+                forecast_points = data.get("forecast", [])
+            else:
+                forecast_error = (
+                    data.get("detail") or data.get("error") or "Failed to load forecast"
+                )
+
+        except Exception as exc:
+            forecast_error = "Server unavailable"
+    else:
+        forecast_error = "Session expired."
+
+
     def kpi_card(title, value, trend_text, trend_color, trend_icon=None):
         if trend_icon == None:
             if trend_color == "#4ADE80":
@@ -33,7 +62,12 @@ def dashboard(page: ft.Page):
         controls=[
             kpi_card("Monthly Revenue", "₱ 84,200", "6.4% vs last month", "#4ADE80"),
             kpi_card("Net Profit", "₱ 21,500", "3.1% vs last month", "#4ADE80"),
-            kpi_card("Forecast (May)", "90%", "projected", "#4ADE80"),
+            kpi_card(
+                "Forecast (Next Month)",
+                f"₱ {forecast_points[0]['yhat']:,.0f}" if forecast_points else "N/A",
+                "projected" if forecast_points else (forecast_error or "no data"),
+                "#4ADE80",
+            ),
             kpi_card("COGS Ratio", "38.2%", "slightly high", "#F87171"),
         ],
         run_spacing=15,
@@ -84,6 +118,44 @@ def dashboard(page: ft.Page):
         spacing=10
     )
 
+    def build_forecast_chart():
+        if forecast_error:
+            return ft.Container(
+                content=ft.Text(forecast_error, size=12, italic=True, color=ft.Colors.BLUE_GREY_300),
+                alignment=ft.Alignment.CENTER, height=250,
+            )
+        if not forecast_points:
+            return ft.Container(
+                content=ft.Text("Not enough historical data for a forecast.", size=12, italic=True, color=ft.Colors.BLUE_GREY_300),
+                alignment=ft.Alignment.CENTER, height=250,
+            )
+
+        data_points = [
+            ft.LineChartDataPoint(i, point["yhat"])
+            for i, point in enumerate(forecast_points)
+        ]
+
+        forecast_line = ft.LineChartData(
+            data_points=data_points,
+            stroke_width=2,
+            color="#7ee08a",
+            dash_pattern=[6, 4],
+            curved=True,
+        )
+
+        return ft.LineChart(
+            data_series=[forecast_line],
+            height=250,
+            border=ft.Border.all(1, ft.Colors.GREY_300),
+            left_axis=ft.ChartAxis(labels_size=40),
+            bottom_axis=ft.ChartAxis(
+                labels=[
+                    ft.ChartAxisLabel(value=i, label=ft.Text(point["ds"][:7], size=10))
+                    for i, point in enumerate(forecast_points)
+                ],
+            ),
+        )
+
     graph_card = ft.Container(
         content=ft.Column([
             ft.Row([
@@ -110,11 +182,7 @@ def dashboard(page: ft.Page):
             
             ft.Divider(height=1, color=ft.Colors.GREY_300),
             
-            ft.Container(
-                content=ft.Text("Line graph visualization will display here.", size=12, italic=True, color=ft.Colors.BLUE_GREY_300),
-                alignment=ft.Alignment.CENTER,
-                height=250,
-            )
+            build_forecast_chart(),
         ]),
         bgcolor=ft.Colors.WHITE,
         padding=20,
