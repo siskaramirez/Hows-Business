@@ -5,6 +5,7 @@ import tempfile
 from pathlib import Path
 
 from config import load_db_config
+from services.r_runtime import find_rscript
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 R_SCRIPT = BASE_DIR / "R" / "run_reports.R"
@@ -32,7 +33,7 @@ def generate_report(
 
     try:
         completed = subprocess.run(
-            ["Rscript", str(R_SCRIPT), temp_path],
+            [find_rscript(), "--vanilla", str(R_SCRIPT), temp_path],
             capture_output=True,
             text=True,
             cwd=str(BASE_DIR),

@@ -57,10 +57,23 @@ def login(page: ft.Page, on_back_callback):
                 
                 # Navigate to PIN verification
                 page.navigate("/verify-pin")
-            else:
+            elif response.status_code == 401:
                 snack = ft.SnackBar(
                     ft.Text("Invalid email or password!"), 
                     bgcolor=ft.Colors.RED_400
+                )
+                page.overlay.append(snack)
+                snack.open = True
+                page.update()
+            else:
+                try:
+                    detail = response.json().get("detail", "Login service error")
+                except ValueError:
+                    detail = "Login service error"
+
+                snack = ft.SnackBar(
+                    ft.Text(f"Unable to log in: {detail}"),
+                    bgcolor=ft.Colors.RED_400,
                 )
                 page.overlay.append(snack)
                 snack.open = True

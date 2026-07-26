@@ -142,8 +142,10 @@ for (i in seq_along(all_dates)) {
         sample(2:5, 1)
     }
 
+    daily_sales_total <- 0
     for (j in seq_len(sales_today)) {
         sale_amount <- sample(150:850, 1)
+        daily_sales_total <- daily_sales_total + sale_amount
         insert_transaction(
             conn,
             user_no,
@@ -156,6 +158,18 @@ for (i in seq_along(all_dates)) {
             payment_method = random_payment()
         )
     }
+
+    insert_transaction(
+        conn,
+        user_no,
+        next_invoice(),
+        current_day,
+        "Daily food ingredients",
+        "Expense",
+        "Cost of Goods Sold (COGS)",
+        round(daily_sales_total * runif(1, 0.30, 0.38)),
+        "Cash"
+    )
 
     # Occasional expenses: rent once a month, utilities weekly
     if (format(current_day, "%d") == "01") {

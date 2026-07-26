@@ -2,7 +2,6 @@ import os
 import io
 import json
 import subprocess
-import mysql.connector
 import pandas as pd
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
@@ -16,13 +15,14 @@ from pathlib import Path
 from api import records
 from api.database import get_db_connection
 from api.reporting import generate_report
-from services.template_generator import generate_transaction_template
+from services.r_runtime import find_rscript
 
 import traceback
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 FORECAST_R_SCRIPT = BASE_DIR / "R" / "run_forecast.R"
 SIMULATION_R_SCRIPT = BASE_DIR / "R" / "run_simulation.R"
+INSIGHTS_R_SCRIPT = BASE_DIR / "R" / "run_insights.R"
 
 
 app = FastAPI(
@@ -37,22 +37,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 
-UPLOAD_FOLDER = "uploads"
+UPLOAD_FOLDER = BASE_DIR / "uploads"
 
 os.makedirs(
     UPLOAD_FOLDER,
     exist_ok=True
 )
-
-
-def get_db_connection():
-    with open("db_config.json", "r") as f:
-        db_config = json.load(f)
-        
-    return mysql.connector.connect(**db_config)
 
 
 class LoginRequest(BaseModel):
@@ -149,6 +142,7 @@ async def verify_pin(data: PinVerifyRequest):
 
 @app.get("/download-template")
 def download_template():
+    from services.template_generator import generate_transaction_template
 
     file_path = generate_transaction_template()
 
@@ -161,7 +155,7 @@ def download_template():
 
 @app.get("/upload")
 def upload_page():
-    return FileResponse("static/upload/index.html")
+    return FileResponse(BASE_DIR / "static" / "upload" / "index.html")
 
 
 @app.post("/extract")
@@ -205,8 +199,9 @@ async def extract_excel(file: UploadFile, user_no: int = Form(...),):
 
         result = subprocess.run(
             [
-                r"C:\Program Files\R\R-4.5.2\bin\Rscript.exe",
-                "R/extract_data.R",
+                find_rscript(),
+                "--vanilla",
+                str(BASE_DIR / "R" / "extract_data.R"),
                 file_path,
                 str(user_no),
                 str(upload_id),
@@ -444,8 +439,9 @@ async def get_forecast(user_no: int = Query(...), periods: int = Query(6)):
     try:
         completed = subprocess.run(
             [
-                r"C:\Program Files\R\R-4.5.2\bin\Rscript.exe",
-                FORECAST_R_SCRIPT.name,
+                find_rscript(),
+                "--vanilla",
+                str(FORECAST_R_SCRIPT),
                 str(user_no),
                 str(periods),
             ],
@@ -468,9 +464,84 @@ async def get_forecast(user_no: int = Query(...), periods: int = Query(6)):
         raise HTTPException(status_code=500, detail=str(e) or "R script execution failed")
 
 
+@app.get("/insights")
+async def get_business_insights(user_no: int = Query(...)):
+    conn = None
+    cursor = None
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            """
+            SELECT
+                transaction_date,
+                account_name,
+                transaction_type,
+                amount,
+                status
+            FROM records
+            WHERE user_no = %s
+            ORDER BY transaction_date, ref_no
+            """,
+            (user_no,),
+        )
+
+        records_payload = [
+            {
+                "transaction_date": row["transaction_date"].isoformat(),
+                "account_name": row["account_name"],
+                "transaction_type": row["transaction_type"],
+                "amount": float(row["amount"]),
+                "status": row["status"],
+            }
+            for row in cursor.fetchall()
+        ]
+
+        completed = subprocess.run(
+            [
+                find_rscript(),
+                "--vanilla",
+                INSIGHTS_R_SCRIPT.as_posix(),
+                "-",
+            ],
+            input=json.dumps({"user_no": user_no, "records": records_payload}),
+            capture_output=True,
+            text=True,
+            cwd=str(INSIGHTS_R_SCRIPT.parent),
+            timeout=60,
+        )
+        if completed.returncode != 0:
+            raise RuntimeError(completed.stderr.strip() or completed.stdout.strip())
+
+        raw = completed.stdout.strip()
+        start, end = raw.find("{"), raw.rfind("}")
+        if start == -1 or end == -1:
+            raise RuntimeError("R insights script returned invalid JSON.")
+
+        result = json.loads(raw[start:end + 1])
+        if result.get("status") == "failed":
+            raise RuntimeError(result.get("error", "R insights generation failed."))
+
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
 class SimulationRequest(BaseModel):
     user_no: int
-    seasonality: float = 50
+    price: float = 0
+    volume: int = 0
+    marketing: float = 0
+    raw_material: float = 0
+    wages: float = 0
+    utilities: float = 0
+    seasonality: float = 0
     inflation: float = 0
     competition: float = 0
 
@@ -479,9 +550,25 @@ async def run_simulation(payload: SimulationRequest):
 
     try:
         completed = subprocess.run(
-            ["Rscript", str(SIMULATION_R_SCRIPT), str(payload.user_no),
-             str(payload.seasonality), str(payload.inflation), str(payload.competition)],
-            capture_output=True, text=True, cwd=str(BASE_DIR), timeout=120,
+            [
+                find_rscript(),
+                "--vanilla",
+                str(SIMULATION_R_SCRIPT),
+                str(payload.user_no),
+                str(payload.price),
+                str(payload.volume),
+                str(payload.marketing),
+                str(payload.raw_material),
+                str(payload.wages),
+                str(payload.utilities),
+                str(payload.seasonality),
+                str(payload.inflation),
+                str(payload.competition),
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(SIMULATION_R_SCRIPT.parent),
+            timeout=120,
         )
         if completed.returncode != 0:
             raise RuntimeError(completed.stdout.strip() or completed.stderr.strip())

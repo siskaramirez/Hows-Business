@@ -2,6 +2,7 @@ import flet as ft
 import flet_charts as fch
 import requests
 from datetime import datetime
+from components.insights import business_insights_section
 
 API_URL = "http://127.0.0.1:8000"
 
@@ -42,29 +43,8 @@ def dashboard(page: ft.Page):
     user_no = current_user.get("user_no") if current_user else None
 
     now = datetime.now()
-    current_month_name = MONTHS[now.month - 1]
-    previous_month_name = MONTHS[(now.month - 2) % 12]
-
-    monthly_revenue = None
-    net_profit = None
-    revenue_trend_text, revenue_trend_color = "No Data", "#8a94ad"
-    profit_trend_text, profit_trend_color = "No Data", "#8a94ad"
-    
-    if user_no:
-        current_data = fetch_income_statement(user_no, current_month_name)
-        previous_data = fetch_income_statement(user_no, previous_month_name)
-
-        if current_data:
-            monthly_revenue = current_data.get("total_revenue", 0)
-            net_profit = current_data.get("net_profit", 0)
-
-        previous_revenue = previous_data.get("total_revenue") if previous_data else None
-        previous_profit = previous_data.get("net_profit") if previous_data else None
-
-        revenue_trend_text, revenue_trend_color = compute_trend(monthly_revenue, previous_revenue)
-        profit_trend_text, profit_trend_color = compute_trend(net_profit, previous_profit)
-
     forecast_points = []
+    historical_points = []
     forecast_error = None
     trend_summary = None
     overall_direction = None
@@ -87,6 +67,68 @@ def dashboard(page: ft.Page):
             forecast_error = "Server unavailable"
     else:
         forecast_error = "Session expired."
+
+    selected_month = now.month
+    metrics = {}
+
+    def cogs_ratio(report):
+        if not report:
+            return None
+        revenue = float(report.get("total_revenue", 0) or 0)
+        if revenue <= 0:
+            return None
+        cogs_total = sum(
+            float(item.get("Amount", 0) or 0)
+            for item in report.get("expense_details", [])
+            if any(
+                term in str(item.get("Account", "")).lower()
+                for term in ("cost of goods", "cogs", "raw material")
+            )
+        )
+        return cogs_total / revenue * 100
+
+    def model_value_for_month(month_index):
+        month_key = f"{now.year}-{month_index:02d}"
+        for point in historical_points:
+            if point["ds"].startswith(month_key):
+                return float(point.get("forecast", point["actual"])), "Model estimate"
+        for point in forecast_points:
+            if point["ds"].startswith(month_key):
+                detail = f"{point['trend_pct_change']:+.1f}% ({point['confidence']})"
+                return float(point["yhat"]), detail
+        return None, "No forecast"
+
+    def load_month_metrics(month_index):
+        month_name = MONTHS[month_index - 1]
+        previous_index = month_index - 1
+        current_report = fetch_income_statement(user_no, month_name) if user_no else None
+        previous_report = (
+            fetch_income_statement(user_no, MONTHS[previous_index - 1])
+            if user_no and previous_index >= 1
+            else None
+        )
+
+        revenue = current_report.get("total_revenue") if current_report else None
+        profit = current_report.get("net_profit") if current_report else None
+        previous_revenue = previous_report.get("total_revenue") if previous_report else None
+        previous_profit = previous_report.get("net_profit") if previous_report else None
+        current_cogs = cogs_ratio(current_report)
+        previous_cogs = cogs_ratio(previous_report)
+        forecast_value, forecast_detail = model_value_for_month(month_index)
+
+        metrics.update({
+            "month_name": month_name,
+            "revenue": revenue,
+            "profit": profit,
+            "revenue_trend": compute_trend(revenue, previous_revenue),
+            "profit_trend": compute_trend(profit, previous_profit),
+            "forecast": forecast_value,
+            "forecast_detail": forecast_detail,
+            "cogs": current_cogs,
+            "cogs_trend": compute_trend(current_cogs, previous_cogs),
+        })
+
+    load_month_metrics(selected_month)
 
     def kpi_card(title, value, trend_text, trend_color, trend_icon=None):
         if trend_icon == None:
@@ -115,48 +157,78 @@ def dashboard(page: ft.Page):
             height=140,
         )
 
-    if forecast_points:
-        target_date = datetime.strptime(forecast_points[0]["ds"], "%Y-%m-%d")
-        forecast_title = f"Forecast ({target_date.strftime('%B %Y')})"
-        
-        forecast_next_value = f"₱ {forecast_points[0]['yhat']:,.0f}"
-        forecast_trend_text = f"{forecast_points[0]['trend_pct_change']:+.1f}% ({forecast_points[0]['confidence']})"
-        
-        trend_dir = forecast_points[0].get("trend_direction")
-        forecast_trend_color = "#4ADE80" if trend_dir == "up" else "#F87171" if trend_dir == "down" else "#9CA3AF"
-    else:
-        forecast_title = "Forecast"
-        forecast_next_value = "N/A" if forecast_error else "₱0.00"
-        forecast_trend_text = "N/A" if forecast_error else "No Data"
-        forecast_trend_color = "#8a94ad"
-    
-    kpi_row = ft.ResponsiveRow(
-        controls=[
+    def build_kpi_controls():
+        revenue_trend_text, revenue_trend_color = metrics["revenue_trend"]
+        profit_trend_text, profit_trend_color = metrics["profit_trend"]
+        cogs_trend_text, cogs_trend_color = metrics["cogs_trend"]
+        forecast_value = metrics["forecast"]
+        forecast_color = "#4ADE80" if forecast_value is not None else "#8a94ad"
+
+        return [
             kpi_card(
                 "Monthly Revenue",
-                f"₱ {monthly_revenue:,.0f}" if monthly_revenue is not None else "N/A",
+                f"₱ {metrics['revenue']:,.0f}" if metrics["revenue"] is not None else "N/A",
                 revenue_trend_text,
                 revenue_trend_color,
             ),
-            
             kpi_card(
                 "Net Profit",
-                f"₱ {net_profit:,.0f}" if net_profit is not None else "N/A",
+                f"₱ {metrics['profit']:,.0f}" if metrics["profit"] is not None else "N/A",
                 profit_trend_text,
                 profit_trend_color,
             ),
-
             kpi_card(
-                forecast_title,
-                forecast_next_value,
-                forecast_trend_text,
-                forecast_trend_color,
+                f"Forecast ({metrics['month_name']})",
+                f"₱ {forecast_value:,.0f}" if forecast_value is not None else "N/A",
+                metrics["forecast_detail"],
+                forecast_color,
             ),
-            kpi_card("COGS Ratio", "0%", "slightly high", "#F87171"),
-        ],
+            kpi_card(
+                "COGS Ratio",
+                f"{metrics['cogs']:.1f}%" if metrics["cogs"] is not None else "N/A",
+                cogs_trend_text if metrics["cogs"] is not None else "No COGS recorded",
+                cogs_trend_color if metrics["cogs"] is not None else "#8a94ad",
+            ),
+        ]
+
+    kpi_row = ft.ResponsiveRow(
+        controls=build_kpi_controls(),
         run_spacing=15,
         spacing=15,
         margin=ft.Margin(left=10, top=10, right=10, bottom=0),
+    )
+
+    def on_month_change(e):
+        nonlocal selected_month
+        selected_month = MONTHS.index(e.control.value) + 1
+        load_month_metrics(selected_month)
+        kpi_row.controls = build_kpi_controls()
+        kpi_row.update()
+
+    month_dropdown = ft.Dropdown(
+        value=MONTHS[selected_month - 1],
+        options=[ft.dropdown.Option(month) for month in MONTHS],
+        on_select=on_month_change,
+        width=190,
+        height=46,
+        border_radius=6,
+        border_color="#1C2541",
+        color="#1C2541",
+        text_size=13,
+        label="Reporting month",
+    )
+    month_selector = ft.Row(
+        controls=[
+            ft.Text(
+                f"Monthly performance · {now.year}",
+                size=13,
+                weight=ft.FontWeight.W_600,
+                color="#1C2541",
+            ),
+            month_dropdown,
+        ],
+        alignment=ft.MainAxisAlignment.END,
+        vertical_alignment=ft.CrossAxisAlignment.CENTER,
     )
 
     def build_trend_badge():
@@ -220,9 +292,8 @@ def dashboard(page: ft.Page):
         ]
         
         period_filter_row.update()
-        
-        # (Optional) Place your backend trigger here:
-        # load_backend_data(current_filter)
+        chart_slot.content = build_forecast_chart()
+        chart_slot.update()
         
     period_filter_row = ft.Row(
         controls=[
@@ -246,23 +317,44 @@ def dashboard(page: ft.Page):
                 alignment=ft.Alignment.CENTER, height=250,
             )
 
-        all_labels = [h["ds"][:7] for h in historical_points] + [f["ds"][:7] for f in forecast_points]
+        if current_filter == "6 MONTHS":
+            visible_history = historical_points[-6:]
+        elif current_filter == "12 MONTHS":
+            visible_history = historical_points[-12:]
+        else:
+            current_year = str(datetime.now().year)
+            visible_history = [
+                point for point in historical_points
+                if point["ds"].startswith(current_year)
+            ]
+
+        if not visible_history:
+            visible_history = historical_points
+
+        visible_forecast = forecast_points[:1]
+        visible_points = visible_history + visible_forecast
+        all_labels = [
+            datetime.strptime(point["ds"], "%Y-%m-%d").strftime("%b")
+            for point in visible_points
+        ]
 
         historical_data_points = [
             fch.LineChartDataPoint(x=i, y=float(h["actual"]))
-            for i, h in enumerate(historical_points)
+            for i, h in enumerate(visible_history)
         ]
 
-        forecast_start_index = len(historical_points)
-        forecast_data_points = [
-            fch.LineChartDataPoint(x=forecast_start_index + i, y=float(f["yhat"]))
-            for i, f in enumerate(forecast_points)
+        fitted_data_points = [
+            fch.LineChartDataPoint(x=i, y=float(h["forecast"]))
+            for i, h in enumerate(visible_history)
+            if h.get("forecast") is not None
         ]
-
-        if historical_data_points:
-            forecast_data_points = [
-                fch.LineChartDataPoint(x=forecast_start_index - 1, y=float(historical_points[-1]["actual"]))
-            ] + forecast_data_points
+        forecast_data_points = fitted_data_points + [
+            fch.LineChartDataPoint(
+                x=len(visible_history) + i,
+                y=float(point["yhat"]),
+            )
+            for i, point in enumerate(visible_forecast)
+        ]
 
         actual_line = fch.LineChartData(
             points=historical_data_points,
@@ -296,6 +388,8 @@ def dashboard(page: ft.Page):
             interactive=True,
         )
 
+    chart_slot = ft.Container(content=build_forecast_chart(), expand=True)
+
     graph_card = ft.Container(
         content=ft.Column([
             ft.Row([
@@ -328,7 +422,7 @@ def dashboard(page: ft.Page):
             ),
             ft.Divider(height=1, color=ft.Colors.GREY_300),
             
-            build_forecast_chart(),
+            chart_slot,
             build_anomaly_notices(),
         ]),
         bgcolor=ft.Colors.WHITE,
@@ -340,8 +434,10 @@ def dashboard(page: ft.Page):
 
     return ft.Container(
         content=ft.Column([
+            month_selector,
             kpi_row,
-            graph_card
+            graph_card,
+            business_insights_section(page, user_no),
         ], spacing=18, scroll=ft.ScrollMode.AUTO),
         expand=True
     )

@@ -38,7 +38,7 @@ get_total_credits <- function(conn, user_no) {
         INNER JOIN records r
             ON rl.ref_no = r.ref_no
         WHERE
-            r.user_np = ? AND 
+            r.user_no = ? AND
             r.status <> 'voided';
     "
 

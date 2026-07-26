@@ -1,10 +1,12 @@
 import flet as ft
+from datetime import datetime
 
 def header(active_route: str):
+    current_period = datetime.now().strftime("%B %Y")
     header_configs = {
         "/dashboard": {
             "title": "DASHBOARD",
-            "subtitle": "May 2026 — Sales Overview & ML Forecast"
+            "subtitle": f"{current_period} — Sales Overview & ML Forecast"
         },
         "/records": {
             "title": "ADD RECORDS",

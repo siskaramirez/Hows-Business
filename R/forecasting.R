@@ -1,4 +1,3 @@
-library(prophet)
 library(jsonlite)
 library(DBI)
 library(RMariaDB)
@@ -82,31 +81,34 @@ forecast_sales <- function(conn, user_no, periods = 6, future_only = TRUE) {
         stop("At least 12 months of revenue is required.")
     }
 
-    # ----------------------------------------
-    # Train Prophet Model
-    # ----------------------------------------
-    model <- prophet(
-        revenue,
-        yearly.seasonality = FALSE,
-        weekly.seasonality = FALSE,
-        daily.seasonality = FALSE
+    # Fit a lightweight seasonal regression so forecasting works with base R.
+    # The harmonic terms capture annual seasonality without requiring Prophet.
+    history_index <- seq_len(nrow(revenue))
+    training <- data.frame(
+        y = revenue$y,
+        time_index = history_index,
+        annual_sin = sin(2 * pi * history_index / 12),
+        annual_cos = cos(2 * pi * history_index / 12)
     )
+    model <- lm(y ~ time_index + annual_sin + annual_cos, data = training)
 
-    # ----------------------------------------
-    # Generate Future Dates
-    # ----------------------------------------
-    future <- make_future_dataframe(
-        model,
-        periods = periods,
-        freq = "month"
+    future_dates <- seq(
+        from = max(revenue$ds),
+        by = "month",
+        length.out = periods + 1
+    )[-1]
+    full_index <- seq_len(nrow(revenue) + periods)
+    prediction_data <- data.frame(
+        time_index = full_index,
+        annual_sin = sin(2 * pi * full_index / 12),
+        annual_cos = cos(2 * pi * full_index / 12)
     )
-
-    # ----------------------------------------
-    # Predict Revenue
-    # ----------------------------------------
-    full_forecast <- predict(
-        model,
-        future
+    predictions <- predict(model, newdata = prediction_data, interval = "prediction")
+    full_forecast <- data.frame(
+        ds = c(revenue$ds, future_dates),
+        yhat = pmax(0, predictions[, "fit"]),
+        yhat_lower = pmax(0, predictions[, "lwr"]),
+        yhat_upper = pmax(0, predictions[, "upr"])
     )
 
     # Anomalies use ALL fitted values against historical actuals
@@ -156,7 +158,8 @@ forecast_sales <- function(conn, user_no, periods = 6, future_only = TRUE) {
 
     historical <- data.frame(
         ds = as.character(revenue$ds),
-        actual = round(revenue$y, 2)
+        actual = round(revenue$y, 2),
+        forecast = round(full_forecast$yhat[seq_len(nrow(revenue))], 2)
     )
 
     list(

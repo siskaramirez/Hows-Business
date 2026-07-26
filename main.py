@@ -1,5 +1,9 @@
+import threading
+
 import flet as ft
 import requests
+import uvicorn
+from api.server import app as api_app
 from components.navbar import navbar
 from components.sidebar import sidebar
 from components.header import header
@@ -15,7 +19,35 @@ from views.records import records
 from views.statements import statements
 from views.simulation import simulation
 
+_api_thread = None
+_api_lock = threading.Lock()
+
+
+def ensure_api_server():
+    global _api_thread
+
+    with _api_lock:
+        if _api_thread and _api_thread.is_alive():
+            return
+
+        config = uvicorn.Config(
+            api_app,
+            host="127.0.0.1",
+            port=8000,
+            log_level="warning",
+        )
+        server = uvicorn.Server(config)
+        _api_thread = threading.Thread(
+            target=server.run,
+            name="hows-business-api",
+            daemon=True,
+        )
+        _api_thread.start()
+
+
 def main(page: ft.Page):
+    ensure_api_server()
+
     page.title = "How's Business - Management System"
     page.bgcolor = "#0B132B"
     page.padding = 0

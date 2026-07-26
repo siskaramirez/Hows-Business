@@ -1,6 +1,13 @@
 import flet as ft
+import requests
+
+
+API_URL = "http://127.0.0.1:8000"
 
 def simulation(page: ft.Page):
+    current_user = page.session.store.get("user")
+    user_no = current_user.get("user_no") if current_user else None
+
     state = {
         "price": 0.00,
         "volume": 0,
@@ -32,11 +39,14 @@ def simulation(page: ft.Page):
             input_field.value = str(val)
             slider.update()
             input_field.update()
+            run_projection()
 
         slider = ft.Slider(
             min=min_v, max=max_v, value=state[key],
             active_color=ft.Colors.WHITE, inactive_color=ft.Colors.WHITE_38,
-            on_change=on_slider_change, expand=True
+            on_change=on_slider_change,
+            on_change_end=lambda _: run_projection(),
+            expand=True
         )
         
         input_field = ft.TextField(
@@ -112,8 +122,18 @@ def simulation(page: ft.Page):
 
     prob_percent = ft.Text("0%", size=40, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE)
     prob_status = ft.Text("Awaiting Parameters", size=13, weight=ft.FontWeight.BOLD, color=ft.Colors.BLUE_GREY_300)
-    prob_bar = ft.Container(height=15, bgcolor=ft.Colors.WHITE_10, border_radius=8, width=280, margin=ft.Margin(left=0, top=5, right=0, bottom=0))
+    prob_fill = ft.Container(height=15, width=0, bgcolor="#F87171", border_radius=8)
+    prob_bar = ft.Container(
+        content=ft.Row([prob_fill], spacing=0),
+        height=15,
+        bgcolor=ft.Colors.WHITE_10,
+        border_radius=8,
+        width=280,
+        margin=ft.Margin(left=0, top=5, right=0, bottom=0),
+        clip_behavior=ft.ClipBehavior.HARD_EDGE,
+    )
     risk_signal = ft.Text("Adjust the parameters on the left to begin modeling.", size=11, color=ft.Colors.WHITE_70)
+    risk_icon = ft.Icon(ft.Icons.WARNING_ROUNDED, color=ft.Colors.AMBER, size=20)
 
     success_panel = ft.Container(
         content=ft.Column([
@@ -135,7 +155,7 @@ def simulation(page: ft.Page):
             ),
             ft.Divider(color=ft.Colors.WHITE_24, height=15),
             ft.Row([
-                ft.Icon(ft.Icons.WARNING_ROUNDED, color=ft.Colors.AMBER, size=20),
+                risk_icon,
                 ft.Column([
                     ft.Text("Key risk signal", size=11, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE),
                     risk_signal
@@ -147,6 +167,85 @@ def simulation(page: ft.Page):
         border_radius=20,
         height=260,
     )
+
+    def run_projection():
+        if not user_no:
+            prob_status.value = "Session expired"
+            risk_signal.value = "Please log in again to run a simulation."
+            prob_status.update()
+            risk_signal.update()
+            return
+
+        payload = {
+            "user_no": user_no,
+            "price": state["price"],
+            "volume": state["volume"],
+            "marketing": state["marketing"],
+            "raw_material": state["raw_mat"],
+            "wages": state["wages"],
+            "utilities": state["utilities"],
+            "seasonality": state["seasonal"],
+            "inflation": state["inflation"],
+            "competition": state["competition"],
+        }
+
+        try:
+            response = requests.post(
+                f"{API_URL}/simulate",
+                json=payload,
+                timeout=30,
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            projected_revenue = float(result.get("projected_revenue", 0))
+            projected_profit = float(result.get("projected_profit", 0))
+            probability = max(
+                0,
+                min(100, float(result.get("probability_adjusted", 0))),
+            )
+
+            rev_text.value = f"₱ {projected_revenue:,.2f}"
+            profit_text.value = f"₱ {projected_profit:,.2f}"
+            profit_text.color = "#4ADE80" if projected_profit >= 0 else "#F87171"
+            prob_percent.value = f"{probability:.0f}%"
+            prob_status.value = result.get("financial_position", "High risk")
+            risk_signal.value = result.get(
+                "recommendation",
+                "Review the selected parameters.",
+            )
+            prob_fill.width = 280 * probability / 100
+
+            if probability >= 75:
+                signal_color = "#4ADE80"
+                risk_icon.icon = ft.Icons.CHECK_CIRCLE_ROUNDED
+            elif probability >= 50:
+                signal_color = ft.Colors.AMBER
+                risk_icon.icon = ft.Icons.WARNING_ROUNDED
+            else:
+                signal_color = "#F87171"
+                risk_icon.icon = ft.Icons.ERROR_ROUNDED
+
+            prob_fill.bgcolor = signal_color
+            prob_status.color = signal_color
+            risk_icon.color = signal_color
+
+            for control in (
+                rev_text,
+                profit_text,
+                prob_percent,
+                prob_status,
+                prob_fill,
+                risk_signal,
+                risk_icon,
+            ):
+                control.update()
+        except (requests.RequestException, ValueError):
+            prob_status.value = "Simulation unavailable"
+            risk_signal.value = "Unable to calculate this scenario. Check the API connection."
+            prob_status.color = "#F87171"
+            prob_status.update()
+            risk_signal.update()
 
     right_workspace_stack = ft.Column([
         projections_panel,
