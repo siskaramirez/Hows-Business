@@ -31,10 +31,23 @@ def compute_trend(current, previous):
     if current is None:
         return "No data", "#8a94ad"
     if previous in (None, 0):
-        return "No prior data", "#8a94ad"
+        return "No data", "#8a94ad"
     pct = ((current - previous) / previous) * 100
     color = "#4ADE80" if pct >= 0 else "#F87171"
     return f"{abs(pct):.1f}% vs last month", color
+
+def compute_cogs_ratio(income_data, total_revenue):
+    if not income_data or not total_revenue:
+        return None
+    expense_rows = income_data.get("expense_details", []) or []
+    cogs_total = sum(
+        row.get("Amount", 0)
+        for row in expense_rows
+        if "Cost of Goods Sold" in row.get("Account", "")
+    )
+    if cogs_total == 0:
+        return None
+    return (cogs_total / total_revenue) * 100
     
 
 def dashboard(page: ft.Page):
@@ -47,8 +60,10 @@ def dashboard(page: ft.Page):
 
     monthly_revenue = None
     net_profit = None
-    revenue_trend_text, revenue_trend_color = "No Data", "#8a94ad"
-    profit_trend_text, profit_trend_color = "No Data", "#8a94ad"
+    cogs_ratio = None
+    revenue_trend_text, revenue_trend_color = "No data", "#8a94ad"
+    profit_trend_text, profit_trend_color = "No data", "#8a94ad"
+    cogs_trend_text, cogs_trend_color = "No data", "#8a94ad"
     
     if user_no:
         current_data = fetch_income_statement(user_no, current_month_name)
@@ -64,7 +79,20 @@ def dashboard(page: ft.Page):
         revenue_trend_text, revenue_trend_color = compute_trend(monthly_revenue, previous_revenue)
         profit_trend_text, profit_trend_color = compute_trend(net_profit, previous_profit)
 
+        cogs_ratio = compute_cogs_ratio(current_data, monthly_revenue)
+        previous_cogs_ratio = compute_cogs_ratio(previous_data, previous_revenue)
+
+        if cogs_ratio is not None:
+            if previous_cogs_ratio:
+                diff = cogs_ratio - previous_cogs_ratio
+                cogs_trend_color = "#F87171" if diff > 0 else "#4ADE80"
+                cogs_trend_text = f"{'+' if diff > 0 else ''}{diff:.1f}pt vs last month"
+            else:
+                cogs_trend_text = "high" if cogs_ratio > 40 else "healthy"
+                cogs_trend_color = "#F87171" if cogs_ratio > 40 else "#4ADE80"
+
     forecast_points = []
+    historical_points = []
     forecast_error = None
     trend_summary = None
     overall_direction = None
@@ -127,7 +155,7 @@ def dashboard(page: ft.Page):
     else:
         forecast_title = "Forecast"
         forecast_next_value = "N/A" if forecast_error else "₱0.00"
-        forecast_trend_text = "N/A" if forecast_error else "No Data"
+        forecast_trend_text = "N/A" if forecast_error else "No data"
         forecast_trend_color = "#8a94ad"
     
     kpi_row = ft.ResponsiveRow(
@@ -152,7 +180,13 @@ def dashboard(page: ft.Page):
                 forecast_trend_text,
                 forecast_trend_color,
             ),
-            kpi_card("COGS Ratio", "0%", "slightly high", "#F87171"),
+
+            kpi_card(
+                "COGS Ratio", 
+                f"{cogs_ratio:.1f}%" if cogs_ratio is not None else "N/A",
+                cogs_trend_text,
+                cogs_trend_color,
+            ),
         ],
         run_spacing=15,
         spacing=15,
