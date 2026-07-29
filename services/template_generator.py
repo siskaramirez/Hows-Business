@@ -2,7 +2,7 @@ from openpyxl import Workbook
 from openpyxl.worksheet.datavalidation import DataValidation
 from pathlib import Path
 
-def generate_transaction_template():
+def generate_transaction_template(output_path=None):
 
     wb = Workbook()
 
@@ -35,7 +35,7 @@ def generate_transaction_template():
 
     payment_methods = [
         "Cash",
-        "GCash",
+        "Gcash",
         "Maya"
     ]
 
@@ -88,6 +88,8 @@ def generate_transaction_template():
     ws.add_data_validation(payment_validation)
 
     for row in range(2, 1001):
+        # Guide number only. Import intentionally ignores this column.
+        ws[f"A{row}"] = row - 1
 
         account_type_validation.add(ws[f"D{row}"])
 
@@ -98,7 +100,11 @@ def generate_transaction_template():
     lists.sheet_state = "hidden"
 
     # Save workbook to the project folder
-    output_path = Path.home() / "Downloads" / "Transaction_Template.xlsx"
+    output_path = (
+        Path(output_path)
+        if output_path
+        else Path.home() / "Downloads" / "Transaction_Template.xlsx"
+    )
 
     wb.save(output_path)
 

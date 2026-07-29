@@ -45,22 +45,30 @@ def dashboard(page: ft.Page):
     now = datetime.now()
     forecast_points = []
     historical_points = []
+    annual_points = []
+    historical_yearly = []
     forecast_error = None
     trend_summary = None
     overall_direction = None
     anomalies = []
+    dataset_context = {}
+    schedule_feature_used = False
 
     if user_no:
         try:
-            resp = requests.get(f"{API_URL}/forecast", params={"user_no": user_no, "periods": 6}, timeout=60)
+            resp = requests.get(f"{API_URL}/forecast", params={"user_no": user_no, "periods": 12}, timeout=60)
             data = resp.json()
              
             if resp.status_code == 200 and not data.get("error"):
                 forecast_points = data.get("points", [])
                 historical_points = data.get("historical", [])
+                annual_points = data.get("annual_points", [])
+                historical_yearly = data.get("historical_yearly", [])
                 trend_summary = data.get("trend_summary")
                 overall_direction = data.get("overall_direction")
                 anomalies = data.get("anomalies", [])
+                dataset_context = data.get("dataset_context", {})
+                schedule_feature_used = bool(data.get("schedule_feature_used"))
             else:
                 forecast_error = (data.get("detail") or data.get("error") or "Failed to load forecast")
         except Exception as exc:
@@ -91,10 +99,14 @@ def dashboard(page: ft.Page):
         month_key = f"{now.year}-{month_index:02d}"
         for point in historical_points:
             if point["ds"].startswith(month_key):
-                return float(point.get("forecast", point["actual"])), "Model estimate"
+                phase = point.get("business_phase")
+                detail = f"Model estimate · {phase}" if phase else "Model estimate"
+                return float(point.get("forecast", point["actual"])), detail
         for point in forecast_points:
             if point["ds"].startswith(month_key):
                 detail = f"{point['trend_pct_change']:+.1f}% ({point['confidence']})"
+                if point.get("business_phase"):
+                    detail += f" · {point['business_phase']}"
                 return float(point["yhat"]), detail
         return None, "No forecast"
 
@@ -232,15 +244,33 @@ def dashboard(page: ft.Page):
     )
 
     def build_trend_badge():
-        if not trend_summary:
+        series = (
+            [float(point["yhat"]) for point in annual_points]
+            if current_filter == "YTD"
+            else [
+                float(point["yhat"])
+                for point in forecast_points[
+                    :6 if current_filter == "6 MONTHS" else 12
+                ]
+            ]
+        )
+        if not series:
             return ft.Container()
+        pct = ((series[-1] - series[0]) / abs(series[0]) * 100) if series[0] else 0
+        direction = "Upward" if pct > 2 else "Downward" if pct < -2 else "Stable"
+        horizon_label = "5 years" if current_filter == "YTD" else current_filter.lower()
         badge_color = (
-            "#4ADE80" if overall_direction == "Upward"
-            else "#F87171" if overall_direction == "Downward"
+            "#4ADE80" if direction == "Upward"
+            else "#F87171" if direction == "Downward"
             else "#8a94ad"
         )
         return ft.Container(
-            content=ft.Text(trend_summary, size=12, weight=ft.FontWeight.BOLD, color=badge_color),
+            content=ft.Text(
+                f"{direction} trend, {pct:+.1f}% over {horizon_label}",
+                size=12,
+                weight=ft.FontWeight.BOLD,
+                color=badge_color,
+            ),
             bgcolor="#1C2541",
             border_radius=20,
             padding=ft.Padding(left=14, top=6, right=14, bottom=6),
@@ -263,6 +293,18 @@ def dashboard(page: ft.Page):
         )
 
     current_filter = "6 MONTHS"
+    graph_title = ft.Text(
+        "MONTHLY SALES",
+        size=16,
+        weight=ft.FontWeight.BOLD,
+        style=ft.TextStyle(letter_spacing=1),
+    )
+    graph_subtitle = ft.Text(
+        "ACTUAL VS ML FORECAST",
+        size=13,
+        weight=ft.FontWeight.W_600,
+        margin=ft.Margin(left=12, top=0, right=0, bottom=0),
+    )
 
     def period_filter(text):
         is_active = current_filter == text
@@ -294,6 +336,47 @@ def dashboard(page: ft.Page):
         period_filter_row.update()
         chart_slot.content = build_forecast_chart()
         chart_slot.update()
+        trend_badge_slot.content = build_trend_badge()
+        trend_badge_slot.update()
+        graph_title.value = "ANNUAL SALES" if current_filter == "YTD" else "MONTHLY SALES"
+        graph_subtitle.value = (
+            "ACTUAL VS 5-YEAR FORECAST"
+            if current_filter == "YTD"
+            else "ACTUAL VS ML FORECAST"
+        )
+
+    def build_dataset_context_note():
+        schedule_sources = dataset_context.get("business_schedule", [])
+        prescriptive_sources = (
+            dataset_context.get("industry_benchmark", [])
+            + dataset_context.get("cpi_weights", [])
+        )
+        if not schedule_sources and not prescriptive_sources:
+            return ft.Container()
+
+        notes = []
+        if schedule_sources:
+            schedule_state = (
+                "used as a trained calendar feature"
+                if schedule_feature_used
+                else "connected for phase annotations; coefficient training waits for more paired sales history"
+            )
+            notes.append(f"Schedule: {', '.join(schedule_sources)} ({schedule_state})")
+        if prescriptive_sources:
+            notes.append(
+                f"Prescriptive context: {', '.join(prescriptive_sources)}"
+            )
+        return ft.Container(
+            content=ft.Text(
+                " · ".join(notes),
+                size=10,
+                color="#365AA8",
+                italic=True,
+            ),
+            margin=ft.Margin(left=12, top=4, right=0, bottom=0),
+        )
+        graph_title.update()
+        graph_subtitle.update()
         
     period_filter_row = ft.Row(
         controls=[
@@ -303,6 +386,7 @@ def dashboard(page: ft.Page):
         ],
         spacing=10
     )
+    trend_badge_slot = ft.Container(content=build_trend_badge())
 
     def build_forecast_chart():
         if forecast_error:
@@ -317,50 +401,78 @@ def dashboard(page: ft.Page):
                 alignment=ft.Alignment.CENTER, height=250,
             )
 
-        if current_filter == "6 MONTHS":
-            visible_history = historical_points[-6:]
-        elif current_filter == "12 MONTHS":
-            visible_history = historical_points[-12:]
-        else:
-            current_year = str(datetime.now().year)
-            visible_history = [
-                point for point in historical_points
-                if point["ds"].startswith(current_year)
-            ]
-
-        if not visible_history:
-            visible_history = historical_points
-
-        visible_forecast = forecast_points[:1]
-        visible_points = visible_history + visible_forecast
-        all_labels = [
-            datetime.strptime(point["ds"], "%Y-%m-%d").strftime("%b")
-            for point in visible_points
-        ]
-
-        historical_data_points = [
-            fch.LineChartDataPoint(x=i, y=float(h["actual"]))
-            for i, h in enumerate(visible_history)
-        ]
-
-        fitted_data_points = [
-            fch.LineChartDataPoint(x=i, y=float(h["forecast"]))
-            for i, h in enumerate(visible_history)
-            if h.get("forecast") is not None
-        ]
-        forecast_data_points = fitted_data_points + [
-            fch.LineChartDataPoint(
-                x=len(visible_history) + i,
-                y=float(point["yhat"]),
+        if current_filter == "YTD":
+            projection_by_year = {
+                int(point["year"]): point for point in annual_points
+            }
+            all_years = sorted(
+                {
+                    *(int(point["year"]) for point in historical_yearly),
+                    *projection_by_year.keys(),
+                }
             )
-            for i, point in enumerate(visible_forecast)
-        ]
+            labels = [str(year) for year in all_years]
+            index_by_year = {year: index for index, year in enumerate(all_years)}
+            historical_data_points = [
+                fch.LineChartDataPoint(
+                    x=index_by_year[int(point["year"])],
+                    y=float(point["actual"]),
+                )
+                for point in historical_yearly
+                if point.get("actual") is not None
+            ]
+            forecast_data_points = [
+                fch.LineChartDataPoint(
+                    x=index_by_year[int(point["year"])],
+                    y=float(point["forecast"]),
+                )
+                for point in historical_yearly
+                if point.get("forecast") is not None
+                and int(point["year"]) not in projection_by_year
+            ] + [
+                fch.LineChartDataPoint(
+                    x=index_by_year[int(point["year"])],
+                    y=float(point["yhat"]),
+                )
+                for point in annual_points
+            ]
+            point_spacing = 125
+        else:
+            horizon = 6 if current_filter == "6 MONTHS" else 12
+            visible_history = historical_points
+            visible_forecast = forecast_points[:horizon]
+            labels = [
+                datetime.strptime(point["ds"], "%Y-%m-%d").strftime("%b %Y")
+                for point in visible_history + visible_forecast
+            ]
+            historical_data_points = [
+                fch.LineChartDataPoint(x=i, y=float(point["actual"]))
+                for i, point in enumerate(visible_history)
+                if point.get("actual") is not None
+            ]
+            # The model line is independent from the actual line. Historical
+            # fitted values make the two series directly comparable, while the
+            # same model series continues into future months.
+            forecast_data_points = [
+                fch.LineChartDataPoint(x=i, y=float(point["forecast"]))
+                for i, point in enumerate(visible_history)
+                if point.get("forecast") is not None
+            ]
+            forecast_data_points.extend(
+                fch.LineChartDataPoint(
+                    x=len(visible_history) + i,
+                    y=float(point["yhat"]),
+                )
+                for i, point in enumerate(visible_forecast)
+            )
+            point_spacing = 95
 
         actual_line = fch.LineChartData(
             points=historical_data_points,
             stroke_width=2,
             color="#1C2541",
             curved=True,
+            point=True,
         )
 
         forecast_line = fch.LineChartData(
@@ -369,23 +481,45 @@ def dashboard(page: ft.Page):
             color="#7ee08a",
             dash_pattern=[6, 4],
             curved=True,
+            point=True,
         )
 
-        label_step = max(1, len(all_labels) // 8)
+        label_step = 1 if current_filter == "YTD" else max(1, len(labels) // 18)
         bottom_labels = [
             fch.ChartAxisLabel(value=i, label=ft.Text(label, size=10))
-            for i, label in enumerate(all_labels)
+            for i, label in enumerate(labels)
             if i % label_step == 0
         ]
 
-        return fch.LineChart(
+        chart = fch.LineChart(
             data_series=[actual_line, forecast_line],
-            height=250,
+            width=max(780, len(labels) * point_spacing),
+            height=270,
             border=ft.Border.all(1, ft.Colors.GREY_300),
-            left_axis=fch.ChartAxis(label_size=40),
-            bottom_axis=fch.ChartAxis(labels=bottom_labels),
-            expand=True,
+            left_axis=fch.ChartAxis(label_size=56),
+            bottom_axis=fch.ChartAxis(labels=bottom_labels, label_size=50),
+            min_x=0,
+            max_x=max(len(labels) - 1, 1),
             interactive=True,
+        )
+        return ft.Column(
+            controls=[
+                ft.Text(
+                    "Showing the latest edge. Scroll left to revisit earlier records."
+                    if current_filter != "YTD"
+                    else "Annual view: current year plus five projected calendar years.",
+                    size=10,
+                    color=ft.Colors.BLUE_GREY_500,
+                    italic=True,
+                ),
+                ft.Row(
+                    controls=[chart],
+                    scroll=ft.ScrollMode.ALWAYS,
+                    auto_scroll=True,
+                    height=300,
+                ),
+            ],
+            spacing=4,
         )
 
     chart_slot = ft.Container(content=build_forecast_chart(), expand=True)
@@ -394,9 +528,9 @@ def dashboard(page: ft.Page):
         content=ft.Column([
             ft.Row([
                 ft.Column([
-                    ft.Text("MONTHLY SALES", size=16, weight=ft.FontWeight.BOLD, style=ft.TextStyle(letter_spacing=1)),
+                    graph_title,
                     ft.Container(height=5),
-                    ft.Text("ACTUAL VS ML FORECAST", size=13, weight=ft.FontWeight.W_600, margin=ft.Margin(left=12, top=0, right=0, bottom=0)),
+                    graph_subtitle,
                 ], spacing=2),
                 
                 ft.Row([
@@ -415,7 +549,7 @@ def dashboard(page: ft.Page):
             ft.Row(
                 [
                     period_filter_row,
-                    build_trend_badge(),
+                    trend_badge_slot,
                 ],
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                 vertical_alignment=ft.CrossAxisAlignment.CENTER,
@@ -424,6 +558,7 @@ def dashboard(page: ft.Page):
             
             chart_slot,
             build_anomaly_notices(),
+            build_dataset_context_note(),
         ]),
         bgcolor=ft.Colors.WHITE,
         padding=20,

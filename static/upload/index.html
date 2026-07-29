@@ -1,45 +1,86 @@
 <!DOCTYPE html>
-<html>
-
+<html lang="en">
 <head>
-
     <meta charset="UTF-8">
-
-    <title>Import Transactions</title>
-
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Review Transaction Import</title>
     <link rel="stylesheet" href="/static/upload/style.css">
-
 </head>
-
 <body>
+    <main class="shell">
+        <section id="upload-panel" class="panel upload-panel">
+            <div class="panel-heading">
+                <div>
+                    <p class="eyebrow">XLSX IMPORT</p>
+                    <h1>Import transaction records</h1>
+                    <p class="supporting">Select the completed template to extract its entries for review.</p>
+                </div>
+            </div>
 
-<div class="modal">
+            <button id="drop-zone" class="drop-zone" type="button">
+                <span class="upload-icon" aria-hidden="true">&#8679;</span>
+                <strong>Drop an XLSX file here</strong>
+                <span>or click to browse</span>
+            </button>
+            <input type="file" id="file-input" accept=".xlsx" hidden>
+            <div id="upload-status" class="status" role="status"></div>
+        </section>
 
-    <h2>Import Transaction Records</h2>
+        <section id="review-panel" class="panel review-panel" hidden>
+            <div class="panel-heading">
+                <div>
+                    <p class="eyebrow">VALIDATION</p>
+                    <h1>Review entries</h1>
+                    <p id="review-summary" class="supporting"></p>
+                </div>
+                <button id="close-review" class="icon-button" type="button" title="Cancel import">&times;</button>
+            </div>
 
-    <div id="drop-zone">
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Date</th>
+                            <th>Description</th>
+                            <th>Account type</th>
+                            <th>Amount (PHP)</th>
+                            <th>Payment</th>
+                            <th>Transaction type</th>
+                            <th>Invoice no.</th>
+                            <th aria-label="Remove"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="review-body"></tbody>
+                </table>
+            </div>
 
-        <div class="icon">📄</div>
+            <div id="review-status" class="status" role="status"></div>
+            <div class="actions">
+                <button id="cancel-review" class="button secondary" type="button">Cancel</button>
+                <button id="confirm-import" class="button primary" type="button">Verify &amp; import</button>
+            </div>
+        </section>
+    </main>
 
-        <p>Drag & Drop Excel File</p>
-
-        <small>or click to browse</small>
-
-        <input
-            type="file"
-            id="file-input"
-            accept=".xlsx"
-            hidden
-        >
-
+    <div id="pin-modal" class="modal-backdrop" hidden>
+        <section class="pin-modal" role="dialog" aria-modal="true" aria-labelledby="pin-title">
+            <h2 id="pin-title">Secure MPIN Verification</h2>
+            <p>Enter your 4-digit security code to verify all entries.</p>
+            <div id="pin-inputs" class="pin-inputs">
+                <input class="pin-digit" type="password" inputmode="numeric" maxlength="1" aria-label="MPIN digit 1">
+                <input class="pin-digit" type="password" inputmode="numeric" maxlength="1" aria-label="MPIN digit 2">
+                <input class="pin-digit" type="password" inputmode="numeric" maxlength="1" aria-label="MPIN digit 3">
+                <input class="pin-digit" type="password" inputmode="numeric" maxlength="1" aria-label="MPIN digit 4">
+            </div>
+            <div id="pin-status" class="status error" role="status"></div>
+            <div class="pin-actions">
+                <button id="cancel-pin" class="button secondary" type="button">Cancel</button>
+                <button id="verify-pin" class="button pin-primary" type="button">Verify</button>
+            </div>
+        </section>
     </div>
 
-    <div id="status"></div>
-
-</div>
-
-<script src="/static/upload/script.js"></script>
-
+    <script src="/static/upload/script.js"></script>
 </body>
-
 </html>

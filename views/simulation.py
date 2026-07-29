@@ -19,8 +19,40 @@ def simulation(page: ft.Page):
         "inflation": 0.0,
         "competition": 0
     }
+    initial_source = "No current-month records found; enter a scenario manually."
+    has_initial_records = False
+
+    if user_no:
+        try:
+            response = requests.get(
+                f"{API_URL}/simulation/initial-inputs",
+                params={"user_no": user_no},
+                timeout=30,
+            )
+            response.raise_for_status()
+            initial = response.json()
+            if initial.get("has_current_month_records"):
+                has_initial_records = True
+                state.update({
+                    "price": float(initial.get("price", 0)),
+                    "volume": int(initial.get("volume", 0)),
+                    "marketing": float(initial.get("marketing", 0)),
+                    "raw_mat": float(initial.get("raw_material", 0)),
+                    "wages": float(initial.get("wages", 0)),
+                    "utilities": float(initial.get("utilities", 0)),
+                    "seasonal": float(initial.get("seasonality", 0)),
+                    "inflation": float(initial.get("inflation", 0)),
+                    "competition": float(initial.get("competition", 0)),
+                })
+                initial_source = (
+                    f"Initialized from {initial.get('record_count', 0)} active records "
+                    f"in {initial.get('source_period', 'the current month')}."
+                )
+        except (requests.RequestException, ValueError, TypeError):
+            initial_source = "Current-month records could not be loaded; enter a scenario manually."
 
     def create_parameter_control(label, key, min_v, max_v, is_int=False):
+        max_v = max(max_v, state[key])
         def on_slider_change(e):
             val = int(e.control.value) if is_int else round(e.control.value, 2)
             state[key] = val
@@ -63,6 +95,7 @@ def simulation(page: ft.Page):
 
     adjustment_column = ft.Column([ 
         ft.Text("ADJUST PARAMETERS", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE, style=ft.TextStyle(letter_spacing=1)),
+        ft.Text(initial_source, size=10, color=ft.Colors.WHITE_70, italic=True),
 
         ft.Text("REVENUE & PRICING", size=12, weight=ft.FontWeight.BOLD, color=ft.Colors.WHITE, style=ft.TextStyle(letter_spacing=1)),
         create_parameter_control("Unit selling price (₱)", "price", 0, 500),
@@ -168,12 +201,13 @@ def simulation(page: ft.Page):
         height=260,
     )
 
-    def run_projection():
+    def run_projection(update_controls=True):
         if not user_no:
             prob_status.value = "Session expired"
             risk_signal.value = "Please log in again to run a simulation."
-            prob_status.update()
-            risk_signal.update()
+            if update_controls:
+                prob_status.update()
+                risk_signal.update()
             return
 
         payload = {
@@ -230,22 +264,24 @@ def simulation(page: ft.Page):
             prob_status.color = signal_color
             risk_icon.color = signal_color
 
-            for control in (
-                rev_text,
-                profit_text,
-                prob_percent,
-                prob_status,
-                prob_fill,
-                risk_signal,
-                risk_icon,
-            ):
-                control.update()
+            if update_controls:
+                for control in (
+                    rev_text,
+                    profit_text,
+                    prob_percent,
+                    prob_status,
+                    prob_fill,
+                    risk_signal,
+                    risk_icon,
+                ):
+                    control.update()
         except (requests.RequestException, ValueError):
             prob_status.value = "Simulation unavailable"
             risk_signal.value = "Unable to calculate this scenario. Check the API connection."
             prob_status.color = "#F87171"
-            prob_status.update()
-            risk_signal.update()
+            if update_controls:
+                prob_status.update()
+                risk_signal.update()
 
     right_workspace_stack = ft.Column([
         projections_panel,
@@ -291,6 +327,11 @@ def simulation(page: ft.Page):
         adjustment_column.scroll = ft.ScrollMode.AUTO
         adjustment_panel.height = 470
         success_panel.height = 260
+
+    # Populate both sliders and their projected output immediately when the
+    # current month supplied an initial scenario.
+    if has_initial_records:
+        run_projection(update_controls=False)
 
     return ft.Container(
         content=master_scroll_column,

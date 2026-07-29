@@ -1,4 +1,4 @@
-library(DBI)
+saaaalibrary(DBI)
 
 clamp <- function(value, lower = 0, upper = 100) {
     min(max(value, lower), upper)

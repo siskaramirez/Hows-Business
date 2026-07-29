@@ -54,6 +54,7 @@ def business_insights_section(page, user_no):
     result, error = fetch_insights(user_no)
     insights = result.get("insights", []) if result else []
     period = result.get("period", "No transaction data") if result else ""
+    connected_datasets = result.get("datasets_connected", []) if result else []
     active_category = "All"
     expanded_id = None
     content = ft.Column(spacing=10)
@@ -280,6 +281,17 @@ def business_insights_section(page, user_no):
                 f"BASED ON YOUR {period.upper()} RECORDS",
                 size=12,
                 color="#344054",
+            ),
+            ft.Text(
+                (
+                    f"{len(connected_datasets)} REFERENCE DATASET"
+                    f"{'' if len(connected_datasets) == 1 else 'S'} CONNECTED"
+                ),
+                size=10,
+                color="#365AA8",
+                weight=ft.FontWeight.BOLD,
+                visible=bool(connected_datasets),
+                tooltip=", ".join(connected_datasets),
             ),
             ft.Row(
                 controls=[category_button(category) for category in CATEGORIES],

@@ -1,81 +1,85 @@
-library(DBI)
-library(RMariaDB)
-library(dplyr)
 library(jsonlite)
 library(readxl)
 
-
 args <- commandArgs(trailingOnly = TRUE)
-excel_path <- ifelse(length(args) > 0, args[1], "uploads/Transaction_Template.xlsx")
-user_no_arg <- if (length(args) >= 2) as.integer(args[2]) else NA_integer_
-upload_id_arg <- if (length(args) >= 3) as.integer(args[3]) else NA_integer_
+excel_path <- if (length(args) > 0) args[1] else ""
 
-# =========================
-# Load Database
-# =========================
-if (file.exists("db_config.json")) {
-    config <- read_json("db_config.json")
-} else if (file.exists("../db_config.json")) {
-    config <- read_json("../db_config.json")
-} else {
-    stop("db_config.json could not be found.")
-}
-
-# =========================
-# Read the uploaded Excel file
-# =========================
-if (!file.exists(excel_path)) {
+if (!nzchar(excel_path) || !file.exists(excel_path)) {
     stop(paste("Excel file not found at:", excel_path))
 }
 
 raw_data <- read_excel(excel_path)
+required_columns <- c(
+    "Date",
+    "Description",
+    "Account Type",
+    "Account Name",
+    "Amount",
+    "Payment Method",
+    "Invoice No."
+)
+missing_columns <- setdiff(required_columns, names(raw_data))
+if (length(missing_columns) > 0) {
+    stop(paste("Missing required columns:", paste(missing_columns, collapse = ", ")))
+}
 
+# The template # column is only a visual guide and may be prefilled far below
+# the user's data. Keep only rows containing at least one real transaction field.
+has_transaction_data <- apply(
+    raw_data[, required_columns, drop = FALSE],
+    1,
+    function(row) {
+        any(!is.na(row) & nzchar(trimws(as.character(row))))
+    }
+)
+raw_data <- raw_data[has_transaction_data, , drop = FALSE]
 
-# =========================
-# Processing & Cleaning
-# =========================
-cleaned_data <- raw_data %>%
-    select(
-        transaction_date = `Date`,
-        description      = `Description`,
-        account_name     = `Account Type`,
-        transaction_type = `Account Name`,
-        amount           = `Amount`,
-        payment_method   = `Payment Method`,
-        invoice_no       = `Invoice No.`
-    ) %>%
-    mutate(
-        user_no          = user_no_arg,
-        upload_id        = upload_id_arg,
-        transaction_date = as.Date(`transaction_date`, format = "%d/%m/%Y"),
-        amount = as.numeric(amount),
-        status = "active"
-    ) %>%
-    filter(
-        !is.na(transaction_date),
-        !is.na(account_name),
-        !is.na(amount)
-    )
+parse_date <- function(value) {
+    if (is.na(value) || !nzchar(trimws(as.character(value)))) {
+        return(NA_character_)
+    }
+    if (inherits(value, "Date") || inherits(value, "POSIXt")) {
+        return(format(as.Date(value), "%Y-%m-%d"))
+    }
 
+    text <- trimws(as.character(value))
+    for (date_format in c("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y")) {
+        parsed <- suppressWarnings(as.Date(text, format = date_format))
+        if (!is.na(parsed)) {
+            return(format(parsed, "%Y-%m-%d"))
+        }
+    }
+    NA_character_
+}
 
-# =========================
-# Format for JSON output
-# =========================
-transactions <- cleaned_data %>%
-    mutate(
-        transaction_date = as.character(transaction_date),
-        amount = as.numeric(amount)
-    )
+parse_amount <- function(value) {
+    text <- gsub("[^0-9.-]", "", as.character(value))
+    suppressWarnings(as.numeric(text))
+}
 
+clean_text <- function(values) {
+    result <- trimws(as.character(values))
+    result[is.na(values) | result == "NA"] <- NA_character_
+    result
+}
 
-# =========================
-# Return JSON to FastAPI
-# =========================
+transactions <- data.frame(
+    transaction_date = vapply(raw_data[["Date"]], parse_date, character(1)),
+    description = clean_text(raw_data[["Description"]]),
+    account_name = clean_text(raw_data[["Account Type"]]),
+    transaction_type = clean_text(raw_data[["Account Name"]]),
+    amount = vapply(raw_data[["Amount"]], parse_amount, numeric(1)),
+    payment_method = clean_text(raw_data[["Payment Method"]]),
+    invoice_no = clean_text(raw_data[["Invoice No."]]),
+    stringsAsFactors = FALSE
+)
+
 cat(
     toJSON(
         transactions,
         dataframe = "rows",
         auto_unbox = TRUE,
+        na = "null",
         pretty = TRUE
     )
 )

@@ -38,7 +38,7 @@ if (!confirmed) {
     stop(paste0(
         "This will DELETE ALL existing records for user_no=",
         user_no,
-        " and replace them with fake seed data.\n",
+        " to use fake records.\n",
         "Re-run with --yes to confirm: Rscript seed_transactions.R ",
         user_no,
         " --yes"
@@ -48,7 +48,9 @@ if (!confirmed) {
 set.seed(123)
 conn <- connect_database()
 
-# --- Clear only THIS user's data (not everyone's) ---
+# ----------------------------------------
+# Clear only certain user's data
+# ----------------------------------------
 DBI::dbExecute(
     conn,
     "
@@ -65,7 +67,7 @@ DBI::dbExecute(
 
 invoice_counter <- 1
 next_invoice <- function() {
-    invoice <- sprintf("SEED-%05d", invoice_counter)
+    invoice <- sprintf("OR-%04d", invoice_counter)
     invoice_counter <<- invoice_counter + 1
     invoice
 }
@@ -75,7 +77,9 @@ random_payment <- function() {
     sample(payment_methods, 1, prob = c(0.45, 0.35, 0.20))
 }
 
-# --- Insert one transaction: records row + matching record_lines row ---
+# ----------------------------------------
+# Insert Journal Entry
+# ----------------------------------------
 insert_transaction <- function(
     conn,
     user_no,
@@ -111,24 +115,70 @@ insert_transaction <- function(
     debit_amt <- if (account_name %in% normal_debit_side) amount else 0
     credit_amt <- if (!(account_name %in% normal_debit_side)) amount else 0
 
-    DBI::dbExecute(
-        conn,
-        "INSERT INTO record_lines (ref_no, account_name, transaction_type, debit, credit)
-     VALUES (?, ?, ?, ?, ?)",
-        params = list(
-            ref_no,
-            account_name,
-            transaction_type,
-            debit_amt,
-            credit_amt
+    insert_line <- function(account, transaction, debit, credit) {
+        DBI::dbExecute(
+            conn,
+            "INSERT INTO record_lines (ref_no, account_name, transaction_type, debit, credit)
+             VALUES (?, ?, ?, ?, ?)",
+            params = list(ref_no, account, transaction, debit, credit)
         )
+    }
+
+    insert_line(
+        account_name,
+        transaction_type,
+        debit_amt,
+        credit_amt
     )
+
+    payment_account <- if (payment_method %in% c("Cash", "Gcash", "Maya")) {
+        payment_method
+    } else {
+        "Cash"
+    }
+
+    if (account_name == "Revenue") {
+        insert_line("Asset", payment_account, amount, 0)
+    } else if (account_name == "Expense") {
+        insert_line("Asset", payment_account, 0, amount)
+    } else if (account_name == "Asset") {
+        if (transaction_type == "Cash") {
+            insert_line("Equity", "Owner's Equity", 0, amount)
+        } else {
+            insert_line("Asset", payment_account, 0, amount)
+        }
+    } else if (account_name == "Liability") {
+        counterpart <- if (transaction_type == "Accounts Payable") "Inventory" else payment_account
+        insert_line("Asset", counterpart, amount, 0)
+    } else if (account_name == "Equity") {
+        insert_line("Asset", payment_account, amount, 0)
+    }
 }
 
-# --- Generate ~1 year of daily sales, more on weekends/Fridays ---
-start_date <- Sys.Date() - 395 # ~13 months back, comfortably over the 12-month minimum
-end_date <- Sys.Date()
+# ----------------------------------------
+# Generate Daily Sales
+# ----------------------------------------
+start_date <- as.Date("2025-07-01")
+end_date <- as.Date("2026-07-31")
 all_dates <- seq(start_date, end_date, by = "day")
+
+insert_transaction(
+    conn, user_no, next_invoice(), start_date, "Owner's initial capital",
+    "Equity", "Owner's Equity", 150000, "Cash"
+)
+insert_transaction(
+    conn, user_no, next_invoice(), start_date, "Kitchen equipment purchase",
+    "Asset", "Kitchen Equipment", 75000, "Cash"
+)
+insert_transaction(
+    conn, user_no, next_invoice(), start_date, "Initial cash on hand",
+    "Asset", "Cash", 50000, "Cash"
+)
+insert_transaction(
+    conn, user_no, next_invoice(), start_date, "Bank loan for startup",
+    "Liability", "Loans Payable", 60000, "Cash"
+)
+
 
 for (i in seq_along(all_dates)) {
     current_day <- all_dates[i]
@@ -142,10 +192,10 @@ for (i in seq_along(all_dates)) {
         sample(2:5, 1)
     }
 
-    daily_sales_total <- 0
+    daily_cogs_total <- 0
+
     for (j in seq_len(sales_today)) {
         sale_amount <- sample(150:850, 1)
-        daily_sales_total <- daily_sales_total + sale_amount
         insert_transaction(
             conn,
             user_no,
@@ -157,21 +207,32 @@ for (i in seq_along(all_dates)) {
             amount = sale_amount,
             payment_method = random_payment()
         )
+
+        cogs_amount <- round(sale_amount * runif(1, 0.35, 0.45))
+        daily_cogs_total <- daily_cogs_total + cogs_amount
     }
 
-    insert_transaction(
-        conn,
-        user_no,
-        next_invoice(),
-        current_day,
-        "Daily food ingredients",
-        "Expense",
-        "Cost of Goods Sold (COGS)",
-        round(daily_sales_total * runif(1, 0.30, 0.38)),
-        "Cash"
-    )
+    if (daily_cogs_total > 0) {
+        insert_transaction(
+            conn, user_no, next_invoice(), current_day, "Cost of goods sold",
+            "Expense", "Cost of Goods Sold (COGS)", daily_cogs_total, "Cash"
+        )
+    }
 
-    # Occasional expenses: rent once a month, utilities weekly
+    if (weekday == "Wednesday") {
+        insert_transaction(
+            conn, user_no, next_invoice(), current_day, "Inventory restock",
+            "Asset", "Inventory", sample(3000:6000, 1), "Cash"
+        )
+    }
+
+    if (format(current_day, "%d") == "15") {
+        insert_transaction(
+            conn, user_no, next_invoice(), current_day, "Supplier invoice due",
+            "Liability", "Accounts Payable", sample(4000:8000, 1), "Cash"
+        )
+    }
+
     if (format(current_day, "%d") == "01") {
         insert_transaction(
             conn,

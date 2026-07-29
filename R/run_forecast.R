@@ -8,6 +8,7 @@ source("forecasting.R")
 args <- commandArgs(trailingOnly = TRUE)
 user_no <- if (length(args) > 0) as.integer(args[1]) else NA_integer_
 periods <- if (length(args) > 1) as.integer(args[2]) else 6
+schedule_path <- if (length(args) > 2 && nzchar(args[3])) args[3] else NULL
 
 if (is.na(user_no)) {
     cat(toJSON(list(error = "Missing or invalid user_no."), auto_unbox = TRUE))
@@ -24,7 +25,13 @@ conn <- tryCatch(
 
 result <- tryCatch(
     {
-        forecast_result <- forecast_sales(conn, user_no, periods = periods, future_only = TRUE)
+        forecast_result <- forecast_sales(
+            conn,
+            user_no,
+            periods = periods,
+            future_only = TRUE,
+            schedule_path = schedule_path
+        )
         c(list(status = "success"), forecast_result)
     },
     error = function(e) {

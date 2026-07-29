@@ -1,5 +1,8 @@
 import flet as ft
+import requests
 from components.auth import auth_card
+
+API_URL = "http://127.0.0.1:8000"
 
 def signup(page: ft.Page, on_back_callback):
     email_input = ft.TextField(
@@ -76,13 +79,75 @@ def signup(page: ft.Page, on_back_callback):
         height=45,
     )
 
+    terms_checkbox = ft.Checkbox(
+        value=False,
+        fill_color="#1C2541",
+        margin=ft.Margin(0, 0, 0, 0),
+    )
+
+    def show_message(message, error=True):
+        snack = ft.SnackBar(
+            content=ft.Text(message),
+            bgcolor=ft.Colors.RED_400 if error else "#2E7D32",
+        )
+        page.overlay.append(snack)
+        snack.open = True
+        page.update()
+
+    def handle_signup(_):
+        required = (
+            email_input.value,
+            contact_input.value,
+            first_name_input.value,
+            last_name_input.value,
+            password_input.value,
+            confirm_password_input.value,
+        )
+        if not all(value and value.strip() for value in required):
+            show_message("Please complete all required fields.")
+            return
+        if password_input.value != confirm_password_input.value:
+            show_message("Passwords do not match.")
+            return
+        if len(password_input.value) < 8:
+            show_message("Password must be at least 8 characters.")
+            return
+        if not terms_checkbox.value:
+            show_message("Please accept the terms and privacy policy.")
+            return
+
+        payload = {
+            "email": email_input.value.strip(),
+            "contact_number": contact_input.value.strip(),
+            "first_name": first_name_input.value.strip(),
+            "middle_name": (middle_name_input.value or "").strip() or None,
+            "last_name": last_name_input.value.strip(),
+            "password": password_input.value,
+        }
+        try:
+            response = requests.post(f"{API_URL}/signup", json=payload, timeout=30)
+            data = response.json()
+            if response.status_code == 201:
+                page.session.store.set("user", data["user"])
+                show_message("Account created successfully.", error=False)
+                page.navigate("/welcome")
+                return
+            if response.status_code == 404:
+                show_message(
+                    "The running backend is outdated. Restart How's Business and try again."
+                )
+                return
+            show_message(data.get("detail", "Unable to create account."))
+        except (requests.RequestException, ValueError):
+            show_message("Unable to reach the signup service. Please try again.")
+
     create_account_btn = ft.Container(
         content=ft.Text("CREATE ACCOUNT", color=ft.Colors.WHITE, weight=ft.FontWeight.BOLD, size=14),
         bgcolor="#1C2541",
         border_radius=5,
         height=45,
         alignment=ft.Alignment.CENTER,
-        on_click=lambda _: page.navigate("/welcome")
+        on_click=handle_signup,
     )
 
     login_link = ft.Row(
@@ -168,7 +233,7 @@ def signup(page: ft.Page, on_back_callback):
 
                             ft.Row(
                                 controls=[
-                                    ft.Checkbox(value=False, fill_color="#1C2541", margin=ft.Margin(0, 0, 0, 0)),
+                                    terms_checkbox,
                                     ft.Text(
                                         spans=[
                                             ft.TextSpan("BY SIGNING UP, YOU ACCEPT OUR ", style=ft.TextStyle(color="#1C2541", size=9, weight=ft.FontWeight.W_500)),

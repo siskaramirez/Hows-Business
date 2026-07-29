@@ -206,6 +206,10 @@ def statements(page: ft.Page):
                 if not rows:
                     return empty_state("No trial balance data available for this period.")
 
+                total_debit = float(data.get("total_debit", 0) or 0)
+                total_credit = float(data.get("total_credit", 0) or 0)
+                is_balanced = abs(total_debit - total_credit) < 0.01
+
                 return ft.Column([
                     ft.Container(
                         content=ft.DataTable(
@@ -227,6 +231,29 @@ def statements(page: ft.Page):
                             width=float("inf"),
                         ),
                         margin=ft.Margin(left=15, top=5, right=15, bottom=5),
+                    ),
+                    ft.Row(
+                        controls=[
+                            ft.Text(
+                                f"Total Debit: ₱{total_debit:,.2f}",
+                                size=14,
+                                weight=ft.FontWeight.BOLD,
+                                color="#FFFFFF",
+                            ),
+                            ft.Text(
+                                f"Total Credit: ₱{total_credit:,.2f}",
+                                size=14,
+                                weight=ft.FontWeight.BOLD,
+                                color="#FFFFFF",
+                            ),
+                            ft.Text(
+                                "BALANCED" if is_balanced else "UNBALANCED",
+                                size=13,
+                                weight=ft.FontWeight.BOLD,
+                                color="#4ADE80" if is_balanced else "#F87171",
+                            ),
+                        ],
+                        alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     ),
                 ], spacing=12)
 

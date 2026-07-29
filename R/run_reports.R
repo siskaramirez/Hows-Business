@@ -88,7 +88,7 @@ get_record_lines <- function(con, user_no) {
     query <- "
         SELECT
             rl.line_no, rl.ref_no, rl.debit, rl.credit,
-            r.account_name, r.transaction_type, r.transaction_date
+            rl.account_name, rl.transaction_type, r.transaction_date
         FROM record_lines rl
         INNER JOIN records r ON rl.ref_no = r.ref_no
         WHERE r.status = 'active' AND r.user_no = ?
@@ -158,18 +158,19 @@ generate_balance_sheet <- function(account_balances) {
 }
 
 generate_trial_balance <- function(account_balances) {
+    normal_debit <- account_balances$account_name %in% c("Asset", "Expense")
     trial_balance <- data.frame(
         Account = account_balances$transaction_type,
         `Account Type` = account_balances$account_name,
         Debit = ifelse(
-            account_balances$account_name %in% c("Asset", "Expense"),
+            normal_debit,
             pmax(account_balances$Amount, 0),
-            0
+            pmax(-account_balances$Amount, 0)
         ),
         Credit = ifelse(
-            account_balances$account_name %in% c("Liability", "Equity", "Revenue"),
-            pmax(account_balances$Amount, 0),
-            0
+            normal_debit,
+            pmax(-account_balances$Amount, 0),
+            pmax(account_balances$Amount, 0)
         ),
         check.names = FALSE
     )
