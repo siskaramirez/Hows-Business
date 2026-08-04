@@ -1,3 +1,5 @@
+import asyncio
+
 import flet as ft
 import requests
 
@@ -101,6 +103,18 @@ def records(page: ft.Page):
         border_color=ft.Colors.TRANSPARENT,
     )
     table_container = ft.Column(expand=True)
+    page_size = 50
+    current_page = 0
+    total_records = 0
+    pagination_text = ft.Text(size=12, color="#667085")
+    previous_page_button = ft.IconButton(
+        icon=ft.Icons.CHEVRON_LEFT,
+        tooltip="Previous page",
+    )
+    next_page_button = ft.IconButton(
+        icon=ft.Icons.CHEVRON_RIGHT,
+        tooltip="Next page",
+    )
 
     def show_message(message, color="#1C2541"):
         snack = ft.SnackBar(content=ft.Text(message), bgcolor=color)
@@ -112,19 +126,50 @@ def records(page: ft.Page):
         page.pop_dialog()
 
     def fetch_records():
+        nonlocal total_records
         if not user_no:
             return []
         try:
+            params = {
+                "user_no": user_no,
+                "limit": page_size,
+                "offset": current_page * page_size,
+            }
+            query = (search_field.value or "").strip()
+            if query:
+                params["search"] = query
             response = requests.get(
                 f"{API_URL}/records/",
-                params={"user_no": user_no},
+                params=params,
                 timeout=30,
             )
             response.raise_for_status()
             payload = response.json()
-            return payload.get("records", payload) if isinstance(payload, dict) else payload
+            if isinstance(payload, dict):
+                total_records = int(payload.get("total", 0) or 0)
+                return payload.get("records", [])
+            total_records = len(payload)
+            return payload
         except (requests.RequestException, ValueError):
             return []
+
+    def fetch_records_version():
+        if not user_no:
+            return None
+        try:
+            response = requests.get(
+                f"{API_URL}/records/version",
+                params={"user_no": user_no},
+                timeout=10,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            return (
+                int(payload.get("record_count", 0) or 0),
+                int(payload.get("latest_ref", 0) or 0),
+            )
+        except (requests.RequestException, TypeError, ValueError):
+            return None
 
     def confirm_delete(record):
         def void_record(_):
@@ -311,27 +356,9 @@ def records(page: ft.Page):
             padding=ft.Padding(left=12, top=3, right=12, bottom=3),
         )
 
-    def build_table():
-        query = (search_field.value or "").strip().lower()
-        transactions = fetch_records()
-        if query:
-            transactions = [
-                record
-                for record in transactions
-                if query
-                in " ".join(
-                    str(record.get(key) or "")
-                    for key in (
-                        "display_no",
-                        "transaction_date",
-                        "account_name",
-                        "description",
-                        "invoice_no",
-                        "amount",
-                        "status",
-                    )
-                ).lower()
-            ]
+    def build_table(transactions=None):
+        if transactions is None:
+            transactions = fetch_records()
 
         rows = []
         for row_index, record in enumerate(transactions, start=1):
@@ -405,11 +432,42 @@ def records(page: ft.Page):
             horizontal_lines=ft.BorderSide(0.5, "#E0E0E0"),
         )
 
+    def update_pagination():
+        page_count = max(1, (total_records + page_size - 1) // page_size)
+        start = current_page * page_size + 1 if total_records else 0
+        end = min((current_page + 1) * page_size, total_records)
+        pagination_text.value = (
+            f"Showing {start}–{end} of {total_records} · "
+            f"Page {current_page + 1} of {page_count}"
+        )
+        previous_page_button.disabled = current_page <= 0
+        next_page_button.disabled = current_page >= page_count - 1
+
     def update_table_view(_=None):
         table_container.controls = [build_table()]
+        update_pagination()
         page.update()
 
-    search_field.on_change = update_table_view
+    def on_search_change(_):
+        nonlocal current_page
+        current_page = 0
+        update_table_view()
+
+    def go_to_previous_page(_):
+        nonlocal current_page
+        if current_page > 0:
+            current_page -= 1
+            update_table_view()
+
+    def go_to_next_page(_):
+        nonlocal current_page
+        if (current_page + 1) * page_size < total_records:
+            current_page += 1
+            update_table_view()
+
+    search_field.on_change = on_search_change
+    previous_page_button.on_click = go_to_previous_page
+    next_page_button.on_click = go_to_next_page
 
     def clear_manual_fields(_=None):
         for control in (
@@ -588,7 +646,33 @@ def records(page: ft.Page):
             web_popup_window_height=820,
         )
 
-    table_container.controls = [build_table()]
+    initial_transactions = fetch_records()
+    table_container.controls = [build_table(initial_transactions)]
+    update_pagination()
+    initial_version = fetch_records_version()
+
+    page.records_view_generation = getattr(page, "records_view_generation", 0) + 1
+    view_generation = page.records_view_generation
+
+    async def watch_for_imports():
+        latest_refs = [int(record.get("ref_no") or 0) for record in initial_transactions]
+        last_version = initial_version or (total_records, max(latest_refs, default=0))
+        while page.route == "/records" and page.records_view_generation == view_generation:
+            await asyncio.sleep(2)
+            if page.route != "/records" or page.records_view_generation != view_generation:
+                return
+            new_version = await asyncio.to_thread(fetch_records_version)
+            if new_version is not None and new_version != last_version:
+                last_version = new_version
+                transactions = await asyncio.to_thread(fetch_records)
+                table_container.controls = [build_table(transactions)]
+                update_pagination()
+                try:
+                    page.update()
+                except RuntimeError:
+                    return
+
+    page.run_task(watch_for_imports)
 
     upload_card = ft.Container(
         content=ft.Column(
@@ -749,6 +833,16 @@ def records(page: ft.Page):
                     controls=[table_container],
                     scroll=ft.ScrollMode.AUTO,
                 ),
+                ft.Row(
+                    controls=[
+                        pagination_text,
+                        ft.Row(
+                            controls=[previous_page_button, next_page_button],
+                            spacing=0,
+                        ),
+                    ],
+                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                ),
             ]
         ),
         bgcolor=ft.Colors.WHITE,
@@ -766,7 +860,7 @@ def records(page: ft.Page):
             controls=[
                 ft.ResponsiveRow(
                     controls=[
-                        ft.Container(upload_card, col={"sm": 12, "md": 5}, height=310),
+                        ft.Container(upload_card, col={"sm": 12, "md": 5}),
                         ft.Container(manual_card, col={"sm": 12, "md": 7}),
                     ],
                     spacing=20,

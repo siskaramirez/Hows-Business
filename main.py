@@ -18,6 +18,7 @@ from views.dashboard import dashboard
 from views.records import records
 from views.statements import statements
 from views.simulation import simulation
+from services.auth_session import restore_user
 
 _api_thread = None
 _api_lock = threading.Lock()
@@ -45,18 +46,28 @@ def ensure_api_server():
         _api_thread.start()
 
 
-def main(page: ft.Page):
+async def main(page: ft.Page):
     ensure_api_server()
+
+    await restore_user(page)
 
     page.title = "How's Business - Management System"
     page.bgcolor = "#0B132B"
     page.padding = 0
     
     page.current_tab = "HOME"
+    last_is_mobile = page.width <= 768
 
     def route_change(e=None):
         page.clean()
         current_route = page.route if page.route else "/home"
+
+        protected_routes = {
+            "/dashboard", "/records", "/statements", "/simulation", "/settings"
+        }
+        if current_route in protected_routes and not page.session.store.get("user"):
+            page.navigate("/login")
+            return
         
         # No Navbar Pages
         layout_type = "navbar"
@@ -175,7 +186,11 @@ def main(page: ft.Page):
         page.update()
 
     def handle_resize(e):
-        route_change()
+        nonlocal last_is_mobile
+        is_mobile = page.width <= 768
+        if is_mobile != last_is_mobile:
+            last_is_mobile = is_mobile
+            route_change()
 
     page.on_route_change = route_change
     page.on_resize = handle_resize

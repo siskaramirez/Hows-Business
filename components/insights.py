@@ -50,8 +50,8 @@ def fetch_insights(user_no):
         return None, detail
 
 
-def business_insights_section(page, user_no):
-    result, error = fetch_insights(user_no)
+def business_insights_section(page, user_no, prefetched=None):
+    result, error = prefetched if prefetched is not None else fetch_insights(user_no)
     insights = result.get("insights", []) if result else []
     period = result.get("period", "No transaction data") if result else ""
     connected_datasets = result.get("datasets_connected", []) if result else []

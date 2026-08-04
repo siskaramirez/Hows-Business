@@ -275,7 +275,7 @@ def statements(page: ft.Page):
                                 ft.DataRow(cells=[
                                     ft.DataCell(ft.Text(item.get("Account", ""), color="#FFFFFF")),
                                     ft.DataCell(ft.Text(f"₱{item.get('Amount', 0):,.2f}", color="#FFFFFF")),
-                                    ft.DataCell(ft.Text(item.get("account_type", ""), color="#FFFFFF")),
+                                    ft.DataCell(ft.Text(item.get("Account Type", ""), color="#FFFFFF")),
                                 ]) for item in rows
                             ],
                             column_spacing=24,

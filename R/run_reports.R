@@ -197,6 +197,37 @@ generate_cash_flow <- function(account_balances) {
     )
 }
 
+empty_report <- function(report_type) {
+    list(
+        report_type = report_type,
+        message = 'No financial data found for this database.',
+        revenue_details = data.frame(),
+        expense_details = data.frame(),
+        total_revenue = 0,
+        total_expenses = 0,
+        net_profit = 0
+    )
+}
+
+generate_requested_report <- function(record_lines_df, report_type) {
+    if (nrow(record_lines_df) == 0) {
+        return(empty_report(report_type))
+    }
+
+    account_balances <- calculate_account_balances(record_lines_df)
+    if (report_type == 'income_statement') {
+        generate_income_statement(account_balances)
+    } else if (report_type == 'balance_sheet') {
+        generate_balance_sheet(account_balances)
+    } else if (report_type == 'trial_balance') {
+        generate_trial_balance(account_balances)
+    } else if (report_type == 'cash_flow') {
+        generate_cash_flow(account_balances)
+    } else {
+        empty_report(report_type)
+    }
+}
+
 con <- tryCatch(
     connect_database(payload$db),
     error = function(e) {
@@ -217,28 +248,22 @@ if (is.na(user_no)) {
 }
 
 record_lines_df <- get_record_lines(con, user_no)
-record_lines_df <- filter_records_by_month(record_lines_df, payload$month)
 
-if (nrow(record_lines_df) == 0) {
-    result <- list(report_type = payload$report_type, message = 'No financial data found for this database.', revenue_details = data.frame(), expense_details = data.frame(), total_revenue = 0, total_expenses = 0, net_profit = 0)
-    cat(toJSON(result, auto_unbox = TRUE, null = 'null'))
+if (!is.null(payload$months) && length(payload$months) > 0) {
+    requested_months <- as.character(payload$months)
+    reports <- lapply(requested_months, function(requested_month) {
+        month_rows <- filter_records_by_month(record_lines_df, requested_month)
+        generate_requested_report(month_rows, payload$report_type)
+    })
+    names(reports) <- requested_months
+    cat(toJSON(list(reports = reports), auto_unbox = TRUE, null = 'null'))
+    flush.console()
     dbDisconnect(con)
     quit(status = 0)
 }
 
-account_balances <- calculate_account_balances(record_lines_df)
-
-if (payload$report_type == 'income_statement') {
-    result <- generate_income_statement(account_balances)
-} else if (payload$report_type == 'balance_sheet') {
-    result <- generate_balance_sheet(account_balances)
-} else if (payload$report_type == 'trial_balance') {
-    result <- generate_trial_balance(account_balances)
-} else if (payload$report_type == 'cash_flow') {
-    result <- generate_cash_flow(account_balances)
-} else {
-    result <- list(report_type = payload$report_type, message = 'This report type is not implemented yet.', revenue_details = data.frame(), expense_details = data.frame(), total_revenue = 0, total_expenses = 0, net_profit = 0)
-}
+record_lines_df <- filter_records_by_month(record_lines_df, payload$month)
+result <- generate_requested_report(record_lines_df, payload$report_type)
 
 cat(toJSON(result, auto_unbox = TRUE, null = 'null'))
 flush.console()

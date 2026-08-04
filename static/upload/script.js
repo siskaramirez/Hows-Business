@@ -198,6 +198,7 @@ async function confirmImport() {
         reviewStatus.className = "status success";
         confirmButton.textContent = "Imported";
         window.opener?.postMessage({ type: "records-imported" }, "*");
+        window.setTimeout(() => window.close(), 1200);
     } catch (error) {
         reviewStatus.textContent = error.message;
         reviewStatus.className = "status error";

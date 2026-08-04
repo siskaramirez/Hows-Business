@@ -15,6 +15,7 @@ def generate_report(
     upload_id: int | None = None,
     report_type: str = "income_statement",
     month: str | None = None,
+    months: list[str] | None = None,
 ):
     if not R_SCRIPT.exists():
         raise FileNotFoundError(f"R report script not found: {R_SCRIPT}")
@@ -24,6 +25,7 @@ def generate_report(
         "upload_id": upload_id,
         "report_type": report_type,
         "month": month or "",
+        "months": months or [],
         "db": load_db_config(),
     }
 

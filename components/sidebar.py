@@ -1,4 +1,5 @@
 import flet as ft
+from services.auth_session import clear_user
 
 def sidebar(page: ft.Page, active_route: str):
     is_mobile = page.width <= 768
@@ -38,6 +39,11 @@ def sidebar(page: ft.Page, active_route: str):
         else:
             text_color = "#1C2541" if active else ft.Colors.WHITE
 
+        async def navigate(_):
+            if is_logout:
+                await clear_user(page)
+            page.navigate(target_route)
+
         return ft.Container(
             content=ft.Text(
                 label,
@@ -52,7 +58,7 @@ def sidebar(page: ft.Page, active_route: str):
             padding=ft.Padding(left=20, top=10, right=20, bottom=10),
             width=210,
             alignment=ft.Alignment.CENTER_LEFT,
-            on_click=lambda _: page.navigate(target_route)
+            on_click=navigate,
         )
     
     def create_section_label(text: str):

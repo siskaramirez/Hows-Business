@@ -1,5 +1,6 @@
 import flet as ft
 import requests
+from services.auth_session import persist_user
 
 API_URL = "http://127.0.0.1:8000"
 
@@ -36,7 +37,7 @@ def pin(page: ft.Page, mode="create"):
         error_text.visible = True
         page.update()
         
-    def handle_submit(_):
+    async def handle_submit(_):
         entered_pin = "".join([f.value for f in pin_fields if f.value])
 
         if len(entered_pin) < 4:
@@ -60,6 +61,7 @@ def pin(page: ft.Page, mode="create"):
             if response.status_code == 200:
                 print(f"PIN Submitted ({mode}): {entered_pin}")
                 error_text.visible = False
+                await persist_user(page, user)
                 page.navigate("/dashboard")
             else:
                 data = response.json()

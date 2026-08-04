@@ -1,8 +1,9 @@
 import flet as ft
 import flet_charts as fch
 import requests
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from components.insights import business_insights_section
+from components.insights import business_insights_section, fetch_insights
 
 API_URL = "http://127.0.0.1:8000"
 
@@ -28,6 +29,27 @@ def fetch_income_statement(user_no: int, month_name: str):
     except Exception:
         return None
 
+
+def fetch_income_statement_batch(user_no: int, month_names: list[str]):
+    try:
+        response = requests.post(
+            f"{API_URL}/reports/batch",
+            json={
+                "report_type": "income_statement",
+                "months": month_names,
+                "user_no": user_no,
+            },
+            timeout=60,
+        )
+        response.raise_for_status()
+        reports = response.json().get("reports", {})
+        return {
+            month: None if report.get("error") or report.get("message") else report
+            for month, report in reports.items()
+        }
+    except (requests.RequestException, ValueError):
+        return {}
+
 def compute_trend(current, previous):
     if current is None:
         return "No data", "#8a94ad"
@@ -43,6 +65,9 @@ def dashboard(page: ft.Page):
     user_no = current_user.get("user_no") if current_user else None
 
     now = datetime.now()
+    selected_month = now.month
+    report_cache = {}
+    prefetched_insights = (None, None)
     forecast_points = []
     historical_points = []
     annual_points = []
@@ -55,8 +80,39 @@ def dashboard(page: ft.Page):
     schedule_feature_used = False
 
     if user_no:
+        previous_month = selected_month - 1
+        initial_months = [MONTHS[selected_month - 1]]
+        if previous_month >= 1:
+            initial_months.append(MONTHS[previous_month - 1])
+
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            forecast_future = executor.submit(
+                requests.get,
+                f"{API_URL}/forecast",
+                params={"user_no": user_no, "periods": 12},
+                timeout=60,
+            )
+            reports_future = executor.submit(
+                fetch_income_statement_batch,
+                user_no,
+                initial_months,
+            )
+            insights_future = executor.submit(fetch_insights, user_no)
+
+            try:
+                initial_reports = reports_future.result()
+            except Exception:
+                initial_reports = {}
+            for month_index in (selected_month, previous_month):
+                if month_index >= 1:
+                    report_cache[month_index] = initial_reports.get(MONTHS[month_index - 1])
+            try:
+                prefetched_insights = insights_future.result()
+            except Exception:
+                prefetched_insights = (None, "Unable to load business insights.")
+
         try:
-            resp = requests.get(f"{API_URL}/forecast", params={"user_no": user_no, "periods": 12}, timeout=60)
+            resp = forecast_future.result()
             data = resp.json()
              
             if resp.status_code == 200 and not data.get("error"):
@@ -76,7 +132,6 @@ def dashboard(page: ft.Page):
     else:
         forecast_error = "Session expired."
 
-    selected_month = now.month
     metrics = {}
 
     def cogs_ratio(report):
@@ -98,13 +153,20 @@ def dashboard(page: ft.Page):
     def model_value_for_month(month_index):
         month_key = f"{now.year}-{month_index:02d}"
         for point in historical_points:
-            if point["ds"].startswith(month_key):
+            if str(point.get("ds", "")).startswith(month_key):
+                value = point.get("forecast")
+                if value is None:
+                    value = point.get("actual")
+                if value is None:
+                    continue
                 phase = point.get("business_phase")
                 detail = f"Model estimate · {phase}" if phase else "Model estimate"
-                return float(point.get("forecast", point["actual"])), detail
+                return float(value), detail
         for point in forecast_points:
-            if point["ds"].startswith(month_key):
-                detail = f"{point['trend_pct_change']:+.1f}% ({point['confidence']})"
+            if str(point.get("ds", "")).startswith(month_key) and point.get("yhat") is not None:
+                trend_change = float(point.get("trend_pct_change", 0) or 0)
+                confidence = point.get("confidence") or "forecast"
+                detail = f"{trend_change:+.1f}% ({confidence})"
                 if point.get("business_phase"):
                     detail += f" · {point['business_phase']}"
                 return float(point["yhat"]), detail
@@ -113,12 +175,16 @@ def dashboard(page: ft.Page):
     def load_month_metrics(month_index):
         month_name = MONTHS[month_index - 1]
         previous_index = month_index - 1
-        current_report = fetch_income_statement(user_no, month_name) if user_no else None
-        previous_report = (
-            fetch_income_statement(user_no, MONTHS[previous_index - 1])
-            if user_no and previous_index >= 1
-            else None
-        )
+
+        def report_for(index):
+            if not user_no or index < 1:
+                return None
+            if index not in report_cache:
+                report_cache[index] = fetch_income_statement(user_no, MONTHS[index - 1])
+            return report_cache[index]
+
+        current_report = report_for(month_index)
+        previous_report = report_for(previous_index)
 
         revenue = current_report.get("total_revenue") if current_report else None
         profit = current_report.get("net_profit") if current_report else None
@@ -572,7 +638,7 @@ def dashboard(page: ft.Page):
             month_selector,
             kpi_row,
             graph_card,
-            business_insights_section(page, user_no),
+            business_insights_section(page, user_no, prefetched=prefetched_insights),
         ], spacing=18, scroll=ft.ScrollMode.AUTO),
         expand=True
     )

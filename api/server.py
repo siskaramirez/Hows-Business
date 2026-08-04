@@ -15,6 +15,11 @@ from pathlib import Path
 from api.database import get_db_connection, ensure_user_scoped_invoice_index
 from api.reporting import generate_report
 from services.r_runtime import find_rscript
+from services.result_cache import (
+    get_cached_result,
+    invalidate_user_cache,
+    set_cached_result,
+)
 
 import traceback
 from services.dataset_context import (
@@ -147,6 +152,12 @@ class ReportRequest(BaseModel):
     user_no: int
     upload_id: int | None = None
     month: str | None = None
+    report_type: str = "income_statement"
+
+
+class ReportBatchRequest(BaseModel):
+    user_no: int
+    months: list[str]
     report_type: str = "income_statement"
 
 
@@ -548,6 +559,7 @@ def confirm_excel_import(payload: ImportConfirmRequest):
                 cursor.execute(line_insert, (ref_no, *line))
 
         conn.commit()
+        invalidate_user_cache(payload.user_no)
         return {
             "status": "success",
             "upload_id": upload_id,
@@ -736,27 +748,66 @@ async def extract_excel(file: UploadFile, user_no: int = Form(...),):
 
 
 @app.get("/records/")
-async def get_records(user_no: int = Query(...)):
+def get_records(
+    user_no: int = Query(...),
+    limit: int | None = Query(None, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    search: str | None = Query(None, max_length=100),
+):
+    conn = None
+    cursor = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
-        
+
+        where_parts = ["user_no = %s"]
+        params = [user_no]
+        if search and search.strip():
+            needle = f"%{search.strip()}%"
+            where_parts.append(
+                """
+                (
+                    CAST(transaction_date AS CHAR) LIKE %s OR
+                    account_name LIKE %s OR description LIKE %s OR
+                    invoice_no LIKE %s OR CAST(amount AS CHAR) LIKE %s OR
+                    status LIKE %s OR payment_method LIKE %s OR
+                    transaction_type LIKE %s
+                )
+                """
+            )
+            params.extend([needle] * 8)
+        where_sql = " AND ".join(where_parts)
+
+        cursor.execute(f"SELECT COUNT(*) AS total FROM records WHERE {where_sql}", tuple(params))
+        total = int(cursor.fetchone()["total"])
+
+        pagination_sql = ""
+        query_params = list(params)
+        order_direction = "ASC"
+        if limit is not None:
+            order_direction = "DESC"
+            pagination_sql = " LIMIT %s OFFSET %s"
+            query_params.extend([limit, offset])
+
         cursor.execute(
-            """
+            f"""
                 SELECT *
                 FROM records
-                WHERE user_no = %s
-                ORDER BY ref_no ASC
+                WHERE {where_sql}
+                ORDER BY ref_no {order_direction}
+                {pagination_sql}
             """,
-            (user_no,),
+            tuple(query_params),
         )
         rows = cursor.fetchall()
-
-        cursor.close()
-        conn.close()
         
         records_list = []
-        for display_no, row in enumerate(rows, start=1):
+        for row_index, row in enumerate(rows):
+            display_no = (
+                total - offset - row_index
+                if limit is not None
+                else offset + row_index + 1
+            )
             records_list.append({
                 "display_no": display_no,
                 "ref_no": row["ref_no"],
@@ -770,9 +821,42 @@ async def get_records(user_no: int = Query(...)):
                 "status": row["status"]
             })
             
-        return records_list
+        if limit is None:
+            return records_list
+        return {"records": records_list, "total": total}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+@app.get("/records/version")
+def get_records_version(user_no: int = Query(...)):
+    """Return a cheap change marker without transferring the full records table."""
+    conn = None
+    cursor = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(dictionary=True)
+        cursor.execute(
+            """
+            SELECT COUNT(*) AS record_count, COALESCE(MAX(ref_no), 0) AS latest_ref
+            FROM records
+            WHERE user_no = %s
+            """,
+            (user_no,),
+        )
+        return cursor.fetchone()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 
 
 @app.delete("/records/{ref_no}")
@@ -798,6 +882,7 @@ def delete_record(ref_no: int, user_no: int = Query(...)):
             (ref_no, user_no),
         )
         conn.commit()
+        invalidate_user_cache(user_no)
         return {"status": "success", "voided_ref_no": ref_no}
     except HTTPException:
         raise
@@ -882,6 +967,7 @@ async def add_manual_record(record: RecordCreate):
             cursor.execute(line_insert_query, (ref_no, *line))
 
         conn.commit()
+        invalidate_user_cache(record.user_no)
         return {
             "status": "success",
             "message": "Record saved successfully",
@@ -979,6 +1065,7 @@ def update_record(ref_no: int, record: RecordUpdate):
             cursor.execute(line_insert, (ref_no, *line))
 
         conn.commit()
+        invalidate_user_cache(record.user_no)
         return {"status": "success", "message": "Record updated successfully."}
     except HTTPException:
         if conn:
@@ -998,37 +1085,75 @@ def update_record(ref_no: int, record: RecordUpdate):
 @app.post("/reports")
 def generate_reports(payload: ReportRequest):
     try:
+        cache_key = (
+            "report",
+            payload.user_no,
+            payload.upload_id,
+            payload.report_type,
+            payload.month or "",
+        )
+        cached = get_cached_result(cache_key)
+        if cached is not None:
+            return cached
         data = generate_report(
             report_type=payload.report_type,
             user_no=payload.user_no,
             upload_id=payload.upload_id,
             month=payload.month,
         )
-        return data
+        return set_cached_result(cache_key, data, ttl_seconds=60)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/reports/batch")
+def generate_report_batch(payload: ReportBatchRequest):
+    months = tuple(dict.fromkeys(month for month in payload.months if month))
+    if not months:
+        raise HTTPException(status_code=422, detail="At least one month is required.")
+    try:
+        cache_key = ("report_batch", payload.user_no, payload.report_type, *months)
+        cached = get_cached_result(cache_key)
+        if cached is not None:
+            return cached
+        data = generate_report(
+            report_type=payload.report_type,
+            user_no=payload.user_no,
+            months=list(months),
+        )
+        return set_cached_result(cache_key, data, ttl_seconds=60)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 @app.get("/reports/{report_type}")
-async def get_financial_report(report_type: str, user_no: int = Query(...), month: str = Query(...), upload_id: int | None = Query(None),):
+def get_financial_report(report_type: str, user_no: int = Query(...), month: str = Query(...), upload_id: int | None = Query(None),):
     try:
+        cache_key = ("report", user_no, upload_id, report_type, month or "")
+        cached = get_cached_result(cache_key)
+        if cached is not None:
+            return cached
         data = generate_report(
             report_type=report_type,
             user_no=user_no,
             upload_id=upload_id,
             month=month,
         )
-        return data
+        return set_cached_result(cache_key, data, ttl_seconds=60)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/forecast")
-async def get_forecast(
+def get_forecast(
     user_no: int = Query(...),
     periods: int = Query(12, ge=1, le=120),
 ):
 
     try:
+        cache_key = ("forecast", user_no, periods)
+        cached = get_cached_result(cache_key)
+        if cached is not None:
+            return cached
         dataset_paths = get_dataset_paths(user_no)
         schedule_path = get_business_schedule_path(dataset_paths)
         completed = subprocess.run(
@@ -1054,7 +1179,7 @@ async def get_forecast(
             raw = raw[start:end + 1]
         result = json.loads(raw)
         result["dataset_context"] = dataset_provenance(dataset_paths)
-        return result
+        return set_cached_result(cache_key, result, ttl_seconds=120)
     except Exception as e:
         error_msg = f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
         print("Backend Forecast Error:", error_msg)
@@ -1062,11 +1187,15 @@ async def get_forecast(
 
 
 @app.get("/insights")
-async def get_business_insights(user_no: int = Query(...)):
+def get_business_insights(user_no: int = Query(...)):
     conn = None
     cursor = None
 
     try:
+        cache_key = ("insights", user_no)
+        cached = get_cached_result(cache_key)
+        if cached is not None:
+            return cached
         conn = get_db_connection()
         cursor = conn.cursor(dictionary=True)
         cursor.execute(
@@ -1125,7 +1254,7 @@ async def get_business_insights(user_no: int = Query(...)):
         if dataset_insights:
             result.setdefault("insights", []).extend(dataset_insights)
         result["datasets_connected"] = [path.name for path in dataset_paths]
-        return result
+        return set_cached_result(cache_key, result, ttl_seconds=120)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     finally:
@@ -1147,6 +1276,7 @@ async def upload_insight_dataset(
         raise HTTPException(status_code=413, detail="Dataset must be 10 MB or smaller.")
     try:
         path = save_user_dataset(user_no, file.filename, content)
+        invalidate_user_cache(user_no)
         parsed = build_dataset_insights([path], [])
         return {
             "status": "success",
